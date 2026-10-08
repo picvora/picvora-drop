@@ -459,6 +459,108 @@
             color: #94a3b8;
             line-height: 1.6;
         }
+
+        /* 📱 手机端原生全屏大图预览灯箱 */
+        .mobile-lightbox-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 999999;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            background: rgba(10, 15, 29, 0.94);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            animation: fadeInLightbox 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        @keyframes fadeInLightbox {
+            from { opacity: 0; transform: scale(0.98); }
+            to { opacity: 1; transform: scale(1); }
+        }
+
+        .mobile-lightbox-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 16px 20px;
+            background: linear-gradient(180deg, rgba(15, 23, 42, 0.8), transparent);
+            z-index: 10;
+        }
+
+        .mobile-lightbox-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: #f8fafc;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 75%;
+        }
+
+        .mobile-lightbox-close {
+            background: rgba(255, 255, 255, 0.12);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 50%;
+            width: 38px;
+            height: 38px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #f8fafc;
+            cursor: pointer;
+            outline: none;
+            transition: all 0.2s;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .mobile-lightbox-close:active {
+            background: rgba(255, 255, 255, 0.28);
+            transform: scale(0.92);
+        }
+
+        .mobile-lightbox-body {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            padding: 12px;
+            touch-action: pan-y pinch-zoom;
+        }
+
+        .mobile-lightbox-img {
+            max-width: 100%;
+            max-height: 75vh;
+            object-fit: contain;
+            border-radius: 8px;
+            box-shadow: 0 12px 36px rgba(0, 0, 0, 0.6);
+            user-select: none;
+            -webkit-user-drag: none;
+            animation: zoomImg 0.2s ease-out;
+        }
+
+        @keyframes zoomImg {
+            from { transform: scale(0.92); opacity: 0; }
+            to { transform: scale(1); opacity: 1; }
+        }
+
+        .mobile-lightbox-footer {
+            padding: 16px 20px calc(16px + env(safe-area-inset-bottom, 0px));
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: linear-gradient(0deg, rgba(15, 23, 42, 0.9), transparent);
+            z-index: 10;
+        }
+
+        .mobile-lightbox-meta {
+            font-size: 12px;
+            color: #94a3b8;
+        }
     </style>
 </head>
 
@@ -586,6 +688,32 @@
         <div class="mask-content">
             <h2 class="mask-title">请在系统默认浏览器中打开</h2>
             <p class="mask-desc">微信内置浏览器限制局域网 WebRTC 直连与相册保存权限。<br>请点击右上角菜单，选择【在系统默认浏览器中打开】即可享受秒级原图直传！</p>
+        </div>
+    </div>
+
+    <!-- 📱 手机端原图大图全屏预览灯箱 (Mobile Lightbox) -->
+    <div class="mobile-lightbox-modal" id="mobile-lightbox" style="display: none;">
+        <div class="mobile-lightbox-header">
+            <span class="mobile-lightbox-title" id="mobile-lightbox-title">图片预览</span>
+            <button type="button" class="mobile-lightbox-close" id="btn-close-mobile-lightbox" title="关闭大图预览" aria-label="关闭">
+                <svg viewBox="0 0 16 16" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="3" y1="3" x2="13" y2="13" />
+                    <line x1="13" y1="3" x2="3" y2="13" />
+                </svg>
+            </button>
+        </div>
+        <div class="mobile-lightbox-body" id="mobile-lightbox-body">
+            <img src="" alt="预览大图" class="mobile-lightbox-img" id="mobile-lightbox-img">
+        </div>
+        <div class="mobile-lightbox-footer">
+            <span class="mobile-lightbox-meta" id="mobile-lightbox-meta"></span>
+            <button type="button" class="btn btn-primary btn-sm" id="btn-lightbox-save-single" style="gap: 5px;">
+                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M8 2v8.5M4.5 7.5L8 11l3.5-3.5" />
+                    <rect x="2" y="11" width="12" height="3" rx="1" />
+                </svg>
+                保存此图
+            </button>
         </div>
     </div>
 
@@ -1209,16 +1337,92 @@
                 card.appendChild(seq);
                 card.appendChild(sizeBadge);
 
-                // 点击预览大图
+                // 点击卡片呼起沉浸式原生大图灯箱
                 card.addEventListener('click', () => {
-                    const w = window.open();
-                    if (w) {
-                        w.document.write(`<img src="${item.url}" style="max-width:100%;height:auto;display:block;margin:auto;">`);
-                    }
+                    openMobileLightbox(item);
                 });
 
                 galleryGrid.appendChild(card);
             }
+
+            // 📱 手机端全屏大图预览灯箱管理
+            const mobileLightboxEl = document.getElementById('mobile-lightbox');
+            const mobileLightboxTitle = document.getElementById('mobile-lightbox-title');
+            const mobileLightboxImg = document.getElementById('mobile-lightbox-img');
+            const mobileLightboxMeta = document.getElementById('mobile-lightbox-meta');
+            const btnCloseMobileLightbox = document.getElementById('btn-close-mobile-lightbox');
+            const btnLightboxSaveSingle = document.getElementById('btn-lightbox-save-single');
+            let currentLightboxItem = null;
+
+            function openMobileLightbox(item) {
+                currentLightboxItem = item;
+                if (!mobileLightboxEl || !item) return;
+                mobileLightboxTitle.textContent = item.name || '图片预览';
+                mobileLightboxImg.src = item.url;
+                const sizeText = item.size ? `${(item.size / 1024).toFixed(1)} KB` : '';
+                mobileLightboxMeta.textContent = `[${item.index || 1}] · ${item.mimeType || 'JPEG'} · ${sizeText}`;
+                mobileLightboxEl.style.display = 'flex';
+                document.body.style.overflow = 'hidden';
+            }
+
+            function closeMobileLightbox() {
+                if (!mobileLightboxEl) return;
+                mobileLightboxEl.style.display = 'none';
+                if (mobileLightboxImg) mobileLightboxImg.src = '';
+                currentLightboxItem = null;
+                document.body.style.overflow = '';
+            }
+
+            if (btnCloseMobileLightbox) {
+                btnCloseMobileLightbox.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    closeMobileLightbox();
+                });
+            }
+
+            // 点击大图主体外部遮罩区域安全关闭
+            if (mobileLightboxEl) {
+                mobileLightboxEl.addEventListener('click', (e) => {
+                    if (e.target === mobileLightboxEl || e.target.id === 'mobile-lightbox-body') {
+                        closeMobileLightbox();
+                    }
+                });
+            }
+
+            // 单图保存
+            if (btnLightboxSaveSingle) {
+                btnLightboxSaveSingle.addEventListener('click', async (e) => {
+                    e.stopPropagation();
+                    if (!currentLightboxItem) return;
+                    const item = currentLightboxItem;
+                    const fileToShare = new File([item.blob], item.name, { type: item.mimeType || 'image/jpeg' });
+                    if (navigator.canShare && navigator.canShare({ files: [fileToShare] })) {
+                        try {
+                            await navigator.share({
+                                files: [fileToShare],
+                                title: item.name
+                            });
+                            return;
+                        } catch (err) {
+                            if (err.name === 'AbortError') return;
+                        }
+                    }
+                    // 降级下载
+                    const a = document.createElement('a');
+                    a.href = item.url;
+                    a.download = item.name;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                });
+            }
+
+            // ESC 键或返回
+            window.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape' && mobileLightboxEl && mobileLightboxEl.style.display !== 'none') {
+                    closeMobileLightbox();
+                }
+            });
 
             // 6. 一键转存系统相册 (Web Share API)
             btnSaveAlbum.addEventListener('click', async () => {
@@ -1289,6 +1493,7 @@
             // 7. 一键清空恢复到默认状态 (以备再次接收，保持 P2P 直连)
             function resetToDefaultState() {
                 logDebug('用户手动触发清空接收站，恢复初始就绪状态...');
+                closeMobileLightbox();
                 // 释放已接收图片的 Blob URL 内存
                 receivedFiles.forEach(rf => {
                     try { URL.revokeObjectURL(rf.url); } catch (_) {}
