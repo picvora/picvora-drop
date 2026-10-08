@@ -533,9 +533,15 @@
 
         <!-- 九宫格素材流 -->
         <section id="gallery-section" style="display: none;">
-            <div class="gallery-header-row">
+            <div class="gallery-header-row" style="display: flex; align-items: center; justify-content: space-between;">
                 <span class="gallery-counter" id="gallery-counter">已接收素材 (0 张)</span>
-                <span style="font-size: 11px; color: var(--text-muted);">点按任意素材可检视大图</span>
+                <button type="button" class="btn btn-secondary btn-sm" id="btn-reset-gallery" style="display: none; padding: 3px 8px; font-size: 11px; gap: 4px;">
+                    <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M2.5 8a5.5 5.5 0 1 1 1.6 3.9L2 14" />
+                        <path d="M2 10v4h4" />
+                    </svg>
+                    恢复默认/就绪再传
+                </button>
             </div>
             <div class="gallery-grid" id="gallery-grid"></div>
         </section>
@@ -548,6 +554,13 @@
                     <rect x="2" y="11" width="12" height="3" rx="1" />
                 </svg>
                 一键转存系统相册
+            </button>
+            <button type="button" class="btn btn-secondary btn-full" id="btn-reset-bottom" style="margin-top: 8px; justify-content: center; gap: 6px;">
+                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M2.5 8a5.5 5.5 0 1 1 1.6 3.9L2 14" />
+                    <path d="M2 10v4h4" />
+                </svg>
+                清空已收素材 (保持直连以备再传)
             </button>
         </div>
 
@@ -639,6 +652,8 @@
             const btnCopyText = document.getElementById('btn-copy-text');
             const btnCopyTags = document.getElementById('btn-copy-tags');
             const btnReconnect = document.getElementById('btn-reconnect');
+            const btnResetGallery = document.getElementById('btn-reset-gallery');
+            const btnResetBottom = document.getElementById('btn-reset-bottom');
 
             // 调试折叠
             document.getElementById('btn-toggle-debug').addEventListener('click', () => {
@@ -1063,6 +1078,7 @@
                             progressFill.style.width = '100%';
                             progressPctText.textContent = '100%';
                             bottomAction.style.display = 'block';
+                            if (btnResetGallery) btnResetGallery.style.display = 'inline-flex';
                         }
                     } catch (e) {
                         logDebug(`解析控制报文失败: ${e.message}`);
@@ -1070,30 +1086,68 @@
                     return;
                 }
 
-                // 二进制分片包 (ArrayBuffer)
+                // 二进制分片包识别与万能兼容归一化 (兼容 ArrayBuffer, Uint8Array 及任意 TypedArray/DataView)
+                let rawBuffer = null;
                 if (packet instanceof ArrayBuffer) {
-                    if (!currentReceivingFile) return;
-                    const view = new DataView(packet);
+                    rawBuffer = packet;
+                } else if (ArrayBuffer.isView(packet)) {
+                    rawBuffer = packet.buffer.slice(packet.byteOffset, packet.byteOffset + packet.byteLength);
+                } else if (packet && packet.data instanceof ArrayBuffer) {
+                    rawBuffer = packet.data;
+                } else if (packet && ArrayBuffer.isView(packet.data)) {
+                    rawBuffer = packet.data.buffer.slice(packet.data.byteOffset, packet.data.byteOffset + packet.data.byteLength);
+                }
+
+                if (rawBuffer && rawBuffer.byteLength >= 8) {
+                    if (!currentReceivingFile) {
+                        logDebug('[分片警告] 收到二进制数据块，但当前没有活动的接收任务');
+                        return;
+                    }
+                    const view = new DataView(rawBuffer);
                     const chunkIndex = view.getUint32(0, false);
-                    const chunkPayload = packet.slice(8);
+                    const totalChunks = view.getUint32(4, false);
+                    const chunkPayload = rawBuffer.slice(8);
 
                     currentReceivingFile.chunks[chunkIndex] = chunkPayload;
+                    currentReceivingFile.receivedChunksCount = (currentReceivingFile.receivedChunksCount || 0) + 1;
 
                     // 计算总体进度
                     const curCount = receivedFiles.length;
                     const totalCount = (metaContext && metaContext.totalCount) || 1;
-                    const pct = Math.min(99, Math.round(((curCount + (chunkIndex / currentReceivingFile.totalChunks)) / totalCount) * 100));
+                    const pct = Math.min(99, Math.round(((curCount + (chunkIndex / (currentReceivingFile.totalChunks || 1))) / totalCount) * 100));
                     progressFill.style.width = `${pct}%`;
                     progressPctText.textContent = `${pct}%`;
-                    progressCountText.textContent = `正在传输 [${curCount + 1}/${totalCount}] ${currentReceivingFile.name}`;
+                    progressCountText.textContent = `正在传输 [${curCount + 1}/${totalCount}] ${currentReceivingFile.name} (分片 ${chunkIndex + 1}/${totalChunks})`;
                 }
             }
 
             // 组装当前单张图片 Blob 并渲染卡片
             function assembleCurrentFile() {
                 if (!currentReceivingFile) return;
-                const { id, name, mimeType, chunks, size } = currentReceivingFile;
-                const blob = new Blob(chunks, { type: mimeType || 'image/jpeg' });
+                const { id, name, mimeType, chunks, size, totalChunks } = currentReceivingFile;
+
+                // 严格校验分片有效性，杜绝 undefined 造成的 27 字节假文件
+                const validParts = [];
+                let totalReceivedBytes = 0;
+                for (let i = 0; i < chunks.length; i++) {
+                    const c = chunks[i];
+                    if (c && c.byteLength > 0) {
+                        validParts.push(c);
+                        totalReceivedBytes += c.byteLength;
+                    }
+                }
+
+                if (validParts.length === 0) {
+                    logDebug(`[组装失败] 素材 ${name} 包含 0 个有效分片，丢弃破损空包`);
+                    currentReceivingFile = null;
+                    return;
+                }
+
+                if (validParts.length < chunks.length) {
+                    logDebug(`[分片警告] 素材 ${name} 存在缺失分片 (${validParts.length}/${chunks.length})，已组装 ${totalReceivedBytes} 字节`);
+                }
+
+                const blob = new Blob(validParts, { type: mimeType || 'image/jpeg' });
                 const blobUrl = URL.createObjectURL(blob);
 
                 const item = {
@@ -1107,10 +1161,11 @@
                 };
 
                 receivedFiles.push(item);
-                logDebug(`组装素材成功: ${name} (${(blob.size / 1024).toFixed(1)} KB)`);
+                logDebug(`组装素材成功: ${name} (真实体积: ${(blob.size / 1024).toFixed(1)} KB, 包含 ${validParts.length} 个数据分片)`);
 
                 appendGalleryCard(item);
                 galleryCounter.textContent = `已接收素材 (${receivedFiles.length} 张)`;
+                if (btnResetGallery) btnResetGallery.style.display = 'inline-flex';
 
                 currentReceivingFile = null;
             }
@@ -1230,6 +1285,49 @@
                     alert('复制失败，请手动长按文字复制');
                 });
             });
+
+            // 7. 一键清空恢复到默认状态 (以备再次接收，保持 P2P 直连)
+            function resetToDefaultState() {
+                logDebug('用户手动触发清空接收站，恢复初始就绪状态...');
+                // 释放已接收图片的 Blob URL 内存
+                receivedFiles.forEach(rf => {
+                    try { URL.revokeObjectURL(rf.url); } catch (_) {}
+                });
+                receivedFiles.length = 0;
+                currentReceivingFile = null;
+                metaContext = null;
+
+                // 清空画廊 DOM
+                galleryGrid.innerHTML = '';
+                gallerySection.style.display = 'none';
+                galleryCounter.textContent = '已接收素材 (0 张)';
+                if (btnResetGallery) btnResetGallery.style.display = 'none';
+                bottomAction.style.display = 'none';
+                contextPanel.style.display = 'none';
+
+                // 重置进度条
+                progressFill.style.width = '0%';
+                progressPctText.textContent = '0%';
+                progressCountText.textContent = '等待电脑端推流...';
+
+                // 保持已连通状态
+                if (isP2POpen) {
+                    statusDot.className = 'status-dot connected';
+                    statusText.textContent = '已直连 PC (待命)';
+                    statusDesc.textContent = '素材列表已清空，局域网管道保持通畅。请在电脑端继续选择新素材进行推送！';
+                } else {
+                    statusDot.className = 'status-dot';
+                    statusText.textContent = '准备就绪';
+                    statusDesc.textContent = '等待电脑端连接...';
+                }
+            }
+
+            if (btnResetGallery) {
+                btnResetGallery.addEventListener('click', resetToDefaultState);
+            }
+            if (btnResetBottom) {
+                btnResetBottom.addEventListener('click', resetToDefaultState);
+            }
 
         })();
     </script>
