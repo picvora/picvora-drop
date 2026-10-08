@@ -523,6 +523,7 @@
         }
 
         .mobile-lightbox-body {
+            position: relative;
             flex: 1;
             display: flex;
             align-items: center;
@@ -540,7 +541,55 @@
             box-shadow: 0 12px 36px rgba(0, 0, 0, 0.6);
             user-select: none;
             -webkit-user-drag: none;
-            animation: zoomImg 0.2s ease-out;
+            will-change: transform, opacity;
+        }
+
+        .mobile-lightbox-nav-btn {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 42px;
+            height: 42px;
+            border-radius: 50%;
+            background: rgba(15, 23, 42, 0.65);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            color: #ffffff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            z-index: 15;
+            transition: all 0.2s ease;
+            outline: none;
+            padding: 0;
+            opacity: 0.85;
+            user-select: none;
+        }
+
+        .mobile-lightbox-nav-btn:active {
+            transform: translateY(-50%) scale(0.92);
+            background: rgba(15, 23, 42, 0.9);
+            opacity: 1;
+        }
+
+        .mobile-lightbox-nav-btn.prev {
+            left: 10px;
+        }
+
+        .mobile-lightbox-nav-btn.next {
+            right: 10px;
+        }
+
+        .mobile-lightbox-counter-pill {
+            font-size: 11px;
+            font-weight: 600;
+            padding: 2px 8px;
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.12);
+            color: #e2e8f0;
+            letter-spacing: 0.5px;
         }
 
         @keyframes zoomImg {
@@ -694,7 +743,10 @@
     <!-- 📱 手机端原图大图全屏预览灯箱 (Mobile Lightbox) -->
     <div class="mobile-lightbox-modal" id="mobile-lightbox" style="display: none;">
         <div class="mobile-lightbox-header">
-            <span class="mobile-lightbox-title" id="mobile-lightbox-title">图片预览</span>
+            <div style="display: flex; align-items: center; gap: 8px; overflow: hidden;">
+                <span class="mobile-lightbox-counter-pill" id="mobile-lightbox-counter" style="display: none;">1/1</span>
+                <span class="mobile-lightbox-title" id="mobile-lightbox-title">图片预览</span>
+            </div>
             <button type="button" class="mobile-lightbox-close" id="btn-close-mobile-lightbox" title="关闭大图预览" aria-label="关闭">
                 <svg viewBox="0 0 16 16" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                     <line x1="3" y1="3" x2="13" y2="13" />
@@ -703,7 +755,17 @@
             </button>
         </div>
         <div class="mobile-lightbox-body" id="mobile-lightbox-body">
+            <button type="button" class="mobile-lightbox-nav-btn prev" id="btn-mobile-lightbox-prev" title="上一张 (可向右滑)" aria-label="上一张" style="display: none;">
+                <svg viewBox="0 0 16 16" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="10 3 5 8 10 13" />
+                </svg>
+            </button>
             <img src="" alt="预览大图" class="mobile-lightbox-img" id="mobile-lightbox-img">
+            <button type="button" class="mobile-lightbox-nav-btn next" id="btn-mobile-lightbox-next" title="下一张 (可向左滑)" aria-label="下一张" style="display: none;">
+                <svg viewBox="0 0 16 16" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="6 3 11 8 6 13" />
+                </svg>
+            </button>
         </div>
         <div class="mobile-lightbox-footer">
             <span class="mobile-lightbox-meta" id="mobile-lightbox-meta"></span>
@@ -1345,31 +1407,99 @@
                 galleryGrid.appendChild(card);
             }
 
-            // 📱 手机端全屏大图预览灯箱管理
+            // 📱 手机端全屏大图预览灯箱管理 (支持左右手势划动切图、导航按钮与键盘导航)
             const mobileLightboxEl = document.getElementById('mobile-lightbox');
             const mobileLightboxTitle = document.getElementById('mobile-lightbox-title');
+            const mobileLightboxCounter = document.getElementById('mobile-lightbox-counter');
             const mobileLightboxImg = document.getElementById('mobile-lightbox-img');
             const mobileLightboxMeta = document.getElementById('mobile-lightbox-meta');
             const btnCloseMobileLightbox = document.getElementById('btn-close-mobile-lightbox');
             const btnLightboxSaveSingle = document.getElementById('btn-lightbox-save-single');
+            const btnMobileLightboxPrev = document.getElementById('btn-mobile-lightbox-prev');
+            const btnMobileLightboxNext = document.getElementById('btn-mobile-lightbox-next');
+            const lightboxBody = document.getElementById('mobile-lightbox-body');
+
+            let currentLightboxIndex = -1;
             let currentLightboxItem = null;
 
             function openMobileLightbox(item) {
-                currentLightboxItem = item;
                 if (!mobileLightboxEl || !item) return;
-                mobileLightboxTitle.textContent = item.name || '图片预览';
-                mobileLightboxImg.src = item.url;
-                const sizeText = item.size ? `${(item.size / 1024).toFixed(1)} KB` : '';
-                mobileLightboxMeta.textContent = `[${item.index || 1}] · ${item.mimeType || 'JPEG'} · ${sizeText}`;
+                const idx = receivedFiles.findIndex(f => (f.id && f.id === item.id) || (f.url === item.url) || f === item);
+                currentLightboxIndex = idx >= 0 ? idx : 0;
+                renderMobileLightboxCurrent(0);
                 mobileLightboxEl.style.display = 'flex';
                 document.body.style.overflow = 'hidden';
+            }
+
+            function renderMobileLightboxCurrent(direction = 0) {
+                if (currentLightboxIndex < 0 || currentLightboxIndex >= receivedFiles.length) {
+                    currentLightboxIndex = 0;
+                }
+                const item = receivedFiles[currentLightboxIndex];
+                if (!item) return;
+                currentLightboxItem = item;
+
+                mobileLightboxTitle.textContent = item.name || '图片预览';
+                
+                // 顶部序号胶囊与左右按钮显隐控制
+                const total = receivedFiles.length;
+                const curPos = currentLightboxIndex + 1;
+                if (mobileLightboxCounter) {
+                    mobileLightboxCounter.textContent = `${curPos}/${total}`;
+                    mobileLightboxCounter.style.display = total > 1 ? 'inline-block' : 'none';
+                }
+                if (btnMobileLightboxPrev) {
+                    btnMobileLightboxPrev.style.display = total > 1 ? 'flex' : 'none';
+                }
+                if (btnMobileLightboxNext) {
+                    btnMobileLightboxNext.style.display = total > 1 ? 'flex' : 'none';
+                }
+
+                // 切图动效：如果有 direction (-1 上一张, 1 下一张)，添加平滑位移过渡
+                if (direction !== 0 && mobileLightboxImg) {
+                    mobileLightboxImg.style.transition = 'opacity 0.15s ease-out, transform 0.15s ease-out';
+                    mobileLightboxImg.style.opacity = '0.4';
+                    mobileLightboxImg.style.transform = `translateX(${direction > 0 ? '24px' : '-24px'}) scale(0.96)`;
+                    setTimeout(() => {
+                        mobileLightboxImg.src = item.url;
+                        mobileLightboxImg.style.opacity = '1';
+                        mobileLightboxImg.style.transform = 'translateX(0) scale(1)';
+                    }, 80);
+                } else if (mobileLightboxImg) {
+                    mobileLightboxImg.style.transition = 'none';
+                    mobileLightboxImg.style.transform = 'translateX(0) scale(1)';
+                    mobileLightboxImg.style.opacity = '1';
+                    mobileLightboxImg.src = item.url;
+                }
+
+                const sizeText = item.size ? `${(item.size / 1024).toFixed(1)} KB` : '';
+                if (mobileLightboxMeta) {
+                    mobileLightboxMeta.textContent = `[${curPos}/${total}] · ${item.mimeType || 'JPEG'} · ${sizeText}`;
+                }
+            }
+
+            function switchMobileLightboxImage(delta) {
+                if (!receivedFiles || receivedFiles.length <= 1) return;
+                let nextIdx = currentLightboxIndex + delta;
+                if (nextIdx < 0) {
+                    nextIdx = receivedFiles.length - 1; // 循环切换
+                } else if (nextIdx >= receivedFiles.length) {
+                    nextIdx = 0;
+                }
+                currentLightboxIndex = nextIdx;
+                renderMobileLightboxCurrent(delta);
             }
 
             function closeMobileLightbox() {
                 if (!mobileLightboxEl) return;
                 mobileLightboxEl.style.display = 'none';
-                if (mobileLightboxImg) mobileLightboxImg.src = '';
+                if (mobileLightboxImg) {
+                    mobileLightboxImg.src = '';
+                    mobileLightboxImg.style.transform = 'translateX(0) scale(1)';
+                    mobileLightboxImg.style.opacity = '1';
+                }
                 currentLightboxItem = null;
+                currentLightboxIndex = -1;
                 document.body.style.overflow = '';
             }
 
@@ -1378,6 +1508,103 @@
                     e.stopPropagation();
                     closeMobileLightbox();
                 });
+            }
+
+            // 左右导航按钮点击切图
+            if (btnMobileLightboxPrev) {
+                btnMobileLightboxPrev.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    switchMobileLightboxImage(-1);
+                });
+            }
+            if (btnMobileLightboxNext) {
+                btnMobileLightboxNext.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    switchMobileLightboxImage(1);
+                });
+            }
+
+            // 👆 移动端左右手势划动核心逻辑 (Touch Swipe with Inertia Feedback)
+            let touchStartX = 0;
+            let touchStartY = 0;
+            let touchCurrentX = 0;
+            let touchCurrentY = 0;
+            let isTouching = false;
+            let isHorizontalSwipe = false;
+            let touchStartTime = 0;
+
+            if (lightboxBody) {
+                lightboxBody.addEventListener('touchstart', (e) => {
+                    if (e.touches.length !== 1) return;
+                    touchStartX = e.touches[0].clientX;
+                    touchStartY = e.touches[0].clientY;
+                    touchCurrentX = touchStartX;
+                    touchCurrentY = touchStartY;
+                    isTouching = true;
+                    isHorizontalSwipe = false;
+                    touchStartTime = Date.now();
+                    if (mobileLightboxImg) {
+                        mobileLightboxImg.style.transition = 'none';
+                    }
+                }, { passive: true });
+
+                lightboxBody.addEventListener('touchmove', (e) => {
+                    if (!isTouching || e.touches.length !== 1) return;
+                    touchCurrentX = e.touches[0].clientX;
+                    touchCurrentY = e.touches[0].clientY;
+                    const diffX = touchCurrentX - touchStartX;
+                    const diffY = touchCurrentY - touchStartY;
+
+                    // 快速识别是否为水平滑动
+                    if (!isHorizontalSwipe && Math.abs(diffX) > 8) {
+                        if (Math.abs(diffX) > Math.abs(diffY)) {
+                            isHorizontalSwipe = true;
+                        }
+                    }
+
+                    if (isHorizontalSwipe && mobileLightboxImg) {
+                        if (e.cancelable) e.preventDefault();
+                        const dampFactor = receivedFiles.length > 1 ? 0.6 : 0.2;
+                        mobileLightboxImg.style.transform = `translateX(${diffX * dampFactor}px)`;
+                        mobileLightboxImg.style.opacity = `${Math.max(0.55, 1 - Math.abs(diffX) / 800)}`;
+                    }
+                }, { passive: false });
+
+                const handleTouchEnd = (e) => {
+                    if (!isTouching) return;
+                    isTouching = false;
+                    const diffX = touchCurrentX - touchStartX;
+                    const diffY = touchCurrentY - touchStartY;
+                    const dt = Date.now() - touchStartTime;
+
+                    if (mobileLightboxImg) {
+                        mobileLightboxImg.style.transition = 'transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.2s ease-out';
+                    }
+
+                    if (isHorizontalSwipe && receivedFiles.length > 1) {
+                        const isQuickSwipe = dt < 320 && Math.abs(diffX) > 30;
+                        const isLongSwipe = Math.abs(diffX) > 60;
+                        if ((isQuickSwipe || isLongSwipe) && Math.abs(diffX) > Math.abs(diffY)) {
+                            if (diffX < 0) {
+                                // 向左滑 -> 下一张
+                                switchMobileLightboxImage(1);
+                            } else {
+                                // 向右滑 -> 上一张
+                                switchMobileLightboxImage(-1);
+                            }
+                            return;
+                        }
+                    }
+
+                    // 未达到切换阈值，弹性归位
+                    if (mobileLightboxImg) {
+                        mobileLightboxImg.style.transform = 'translateX(0) scale(1)';
+                        mobileLightboxImg.style.opacity = '1';
+                    }
+                };
+
+                lightboxBody.addEventListener('touchend', handleTouchEnd, { passive: true });
+                lightboxBody.addEventListener('touchcancel', handleTouchEnd, { passive: true });
             }
 
             // 点击大图主体外部遮罩区域安全关闭
@@ -1417,10 +1644,16 @@
                 });
             }
 
-            // ESC 键或返回
+            // 键盘操作 (ESC 关闭、左右箭头切图)
             window.addEventListener('keydown', (e) => {
-                if (e.key === 'Escape' && mobileLightboxEl && mobileLightboxEl.style.display !== 'none') {
-                    closeMobileLightbox();
+                if (mobileLightboxEl && mobileLightboxEl.style.display !== 'none') {
+                    if (e.key === 'Escape') {
+                        closeMobileLightbox();
+                    } else if (e.key === 'ArrowLeft') {
+                        switchMobileLightboxImage(-1);
+                    } else if (e.key === 'ArrowRight') {
+                        switchMobileLightboxImage(1);
+                    }
                 }
             });
 
