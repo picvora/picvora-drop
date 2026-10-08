@@ -503,6 +503,15 @@
                 <span id="progress-count-text">正在传输 0/0 张</span>
                 <span id="progress-pct-text">0%</span>
             </div>
+
+            <!-- 异常一键重连按钮 -->
+            <button type="button" class="btn btn-secondary btn-sm" id="btn-reconnect" style="display: none; margin-top: 10px; width: 100%; justify-content: center; gap: 6px;">
+                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9L14 6" />
+                    <path d="M14 2v4h-4" />
+                </svg>
+                重新尝试连接 PC
+            </button>
         </section>
 
         <!-- 营销文案与爆款标签伴随面板 -->
@@ -629,6 +638,7 @@
             const btnSaveAlbum = document.getElementById('btn-save-album');
             const btnCopyText = document.getElementById('btn-copy-text');
             const btnCopyTags = document.getElementById('btn-copy-tags');
+            const btnReconnect = document.getElementById('btn-reconnect');
 
             // 调试折叠
             document.getElementById('btn-toggle-debug').addEventListener('click', () => {
@@ -642,60 +652,216 @@
             let currentReceivingFile = null; // { id, name, size, mimeType, totalChunks, chunks: [] }
             let metaContext = null;
 
-            // 4. 初始化 PeerJS 并发起向 PC 端的连接
-            logDebug(`正在启动移动端 Peer 节点，准备呼叫 PC 主机: ${hostPeerId}`);
-            statusText.textContent = '呼叫电脑端...';
+            // 国内外多源高可用 WebRTC STUN 穿透服务器池 (优先国内腾讯云 STUN，极速穿透电信/移动/联通 NAT)
+            const PEER_CONFIG = {
+                iceServers: [
+                    { urls: 'stun:stun.cloud.tencent.com:19302' },
+                    { urls: 'stun:stun.qq.com:3478' },
+                    { urls: 'stun:stun.cloudflare.com:3478' },
+                    { urls: 'stun:stun.l.google.com:19302' },
+                    { urls: 'stun:stun1.l.google.com:19302' }
+                ],
+                sdpSemantics: 'unified-plan'
+            };
 
-            const mobilePeer = new Peer({
-                host: '0.peerjs.com',
-                port: 443,
-                path: '/',
-                secure: true,
-                debug: 1
-            });
+            // 4. 连接状态机与退避重试控制器
+            let mobilePeer = null;
+            let activeConn = null;
+            let retryCount = 0;
+            const MAX_RETRIES = 3;
+            let connectTimeoutTimer = null;
+            let isP2POpen = false;
 
-            mobilePeer.on('open', (myId) => {
-                logDebug(`移动端节点已就绪: ${myId}，正在请求建立 DataChannel...`);
-                statusText.textContent = '建立 P2P 管道...';
+            function initMobilePeer() {
+                if (mobilePeer && !mobilePeer.destroyed) {
+                    try { mobilePeer.destroy(); } catch (_) {}
+                    mobilePeer = null;
+                }
 
-                const conn = mobilePeer.connect(hostPeerId, {
-                    reliable: true
+                logDebug(`正在启动移动端 Peer 节点，准备呼叫 PC 主机: ${hostPeerId}`);
+                statusText.textContent = '呼叫电脑端...';
+                statusDot.className = 'status-dot';
+                statusDesc.textContent = '正在连接公共信令服务，请保持本页面在前台运行...';
+                if (btnReconnect) btnReconnect.style.display = 'none';
+
+                try {
+                    mobilePeer = new Peer({
+                        host: '0.peerjs.com',
+                        port: 443,
+                        path: '/',
+                        secure: true,
+                        debug: 1,
+                        config: PEER_CONFIG
+                    });
+                } catch (peerInitErr) {
+                    logDebug(`初始化 Peer 实例异常: ${peerInitErr.message}`);
+                    statusText.textContent = '初始化失败';
+                    statusDesc.textContent = '移动端 WebRTC 模块启动异常，请刷新重试。';
+                    if (btnReconnect) btnReconnect.style.display = 'flex';
+                    return;
+                }
+
+                mobilePeer.on('open', (myId) => {
+                    logDebug(`移动端节点已就绪: ${myId}，开始请求建立 DataChannel 直通管道...`);
+                    retryCount = 0;
+                    startConnecting();
                 });
 
-                conn.on('open', () => {
-                    logDebug(`WebRTC DataChannel 握手成功！局域网直通通道已建立。`);
-                    statusDot.className = 'status-dot connected';
-                    statusText.textContent = '已直连 PC';
-                    statusDesc.textContent = '局域网点对点管道已通，等待 PC 端推送原图二进制流...';
-                    progressWrap.style.display = 'block';
-                    progressRow.style.display = 'flex';
-                });
-
-                conn.on('data', (data) => {
-                    handleIncomingPacket(data);
-                });
-
-                conn.on('close', () => {
-                    logDebug('DataChannel 连接已断开');
-                    if (receivedFiles.length > 0) {
-                        statusText.textContent = '传输完毕 (连接已释放)';
-                    } else {
-                        statusText.textContent = '连接已断开';
+                mobilePeer.on('disconnected', () => {
+                    logDebug('与公共信令服务连接暂时中断，正在尝试自动恢复...');
+                    if (mobilePeer && !mobilePeer.destroyed) {
+                        try { mobilePeer.reconnect(); } catch (_) {}
                     }
                 });
 
-                conn.on('error', (err) => {
-                    logDebug(`连接故障: ${err.message || String(err)}`);
-                    statusText.textContent = '连接异常';
-                    statusDesc.textContent = `P2P 通信错误: ${err.message || String(err)}`;
+                mobilePeer.on('error', (err) => {
+                    logDebug(`PeerJS 异常: ${err.type || ''} ${err.message || ''}`);
+                    
+                    // 网络瞬断/心跳丢失，尝试自愈重连
+                    if (err.type === 'network' || /lost connection/i.test(err.message || '')) {
+                        logDebug('捕获到信令通道网络瞬断，执行自动重连...');
+                        if (mobilePeer && !mobilePeer.destroyed) {
+                            try { mobilePeer.reconnect(); } catch (_) {}
+                        }
+                        return;
+                    }
+
+                    // 目标主机房号不存在或已离线
+                    if (err.type === 'peer-unavailable') {
+                        statusText.textContent = '电脑端离线';
+                        statusDesc.textContent = '未找到对应的电脑端投送节点。可能 PC 端投送窗口已关闭或二维码已过期，请在电脑端重新点击【传至手机】。';
+                        statusDot.className = 'status-dot';
+                        if (btnReconnect) btnReconnect.style.display = 'flex';
+                        return;
+                    }
+
+                    // 其他异常
+                    if (!isP2POpen) {
+                        statusText.textContent = '信令异常';
+                        statusDesc.textContent = `信令协商受限 (${err.type || err.message || '网络连接超时'})，请检查手机网络设置。`;
+                        if (btnReconnect) btnReconnect.style.display = 'flex';
+                    }
                 });
+            }
+
+            function startConnecting() {
+                if (isP2POpen) return;
+                statusText.textContent = retryCount > 0 ? `建立直连 (重试 ${retryCount}/${MAX_RETRIES})...` : '建立 P2P 管道...';
+                statusDesc.textContent = '正在通过局域网/STUN 协商点对点直连管道，请稍候...';
+
+                if (activeConn) {
+                    try { activeConn.close(); } catch (_) {}
+                    activeConn = null;
+                }
+
+                // 8秒连接超时保护，避免网络挂起
+                if (connectTimeoutTimer) clearTimeout(connectTimeoutTimer);
+                connectTimeoutTimer = setTimeout(() => {
+                    if (!isP2POpen) {
+                        logDebug('WebRTC 协商超时 (8s 未完成握手)');
+                        handleConnectionFailure('连接协商超时，两端可能处于不同子网或受防火墙限制');
+                    }
+                }, 8000);
+
+                try {
+                    const conn = mobilePeer.connect(hostPeerId, {
+                        reliable: true
+                    });
+                    activeConn = conn;
+
+                    conn.on('open', () => {
+                        if (connectTimeoutTimer) clearTimeout(connectTimeoutTimer);
+                        isP2POpen = true;
+                        logDebug(`WebRTC DataChannel 握手成功！局域网直通通道已建立。`);
+                        statusDot.className = 'status-dot connected';
+                        statusText.textContent = '已直连 PC';
+                        statusDesc.textContent = '局域网点对点管道已通，等待 PC 端推送原图二进制流...';
+                        progressWrap.style.display = 'block';
+                        progressRow.style.display = 'flex';
+                        if (btnReconnect) btnReconnect.style.display = 'none';
+                    });
+
+                    conn.on('data', (data) => {
+                        handleIncomingPacket(data);
+                    });
+
+                    conn.on('close', () => {
+                        logDebug('DataChannel 连接已断开');
+                        isP2POpen = false;
+                        if (receivedFiles.length > 0) {
+                            statusText.textContent = '传输完毕 (连接已释放)';
+                            statusDesc.textContent = `已成功接收全部 ${receivedFiles.length} 张原图素材。`;
+                        } else {
+                            statusText.textContent = '连接已断开';
+                            statusDesc.textContent = '与电脑端的通信管道已断开。';
+                            if (btnReconnect) btnReconnect.style.display = 'flex';
+                        }
+                    });
+
+                    conn.on('error', (err) => {
+                        logDebug(`连接握手异常: ${err.message || String(err)}`);
+                        handleConnectionFailure(err.message || String(err));
+                    });
+                } catch (connErr) {
+                    logDebug(`发起连接异常: ${connErr.message}`);
+                    handleConnectionFailure(connErr.message);
+                }
+            }
+
+            function handleConnectionFailure(errMsg) {
+                if (connectTimeoutTimer) clearTimeout(connectTimeoutTimer);
+                if (isP2POpen) return;
+
+                if (retryCount < MAX_RETRIES) {
+                    retryCount++;
+                    const delay = retryCount * 1200;
+                    logDebug(`连接协商受阻 (${errMsg})，将于 ${delay}ms 后进行第 ${retryCount} 次自动重连...`);
+                    statusText.textContent = `握手重试 (${retryCount}/${MAX_RETRIES})...`;
+                    statusDesc.textContent = `网络协商抖动，正在自动重试... (${errMsg})`;
+                    setTimeout(() => {
+                        if (!isP2POpen && mobilePeer && !mobilePeer.destroyed) {
+                            if (mobilePeer.disconnected) {
+                                try { mobilePeer.reconnect(); } catch (_) {}
+                            }
+                            startConnecting();
+                        }
+                    }, delay);
+                } else {
+                    logDebug(`连接重试耗尽: ${errMsg}`);
+                    statusText.textContent = '连接失败';
+                    statusDesc.textContent = `无法与电脑端建立直连通道 (${errMsg})。请确保手机与电脑处于同一 Wi-Fi，或点击下方重试。`;
+                    statusDot.className = 'status-dot';
+                    if (btnReconnect) btnReconnect.style.display = 'flex';
+                }
+            }
+
+            // 监听页面前后台唤醒（防止熄屏或微信跳出切回时断线）
+            document.addEventListener('visibilitychange', () => {
+                if (document.visibilityState === 'visible') {
+                    logDebug('页面重回前台，检查网络连接状态...');
+                    if (mobilePeer && mobilePeer.disconnected && !mobilePeer.destroyed) {
+                        logDebug('检测到后台期间信令中断，立即执行自动恢复...');
+                        try { mobilePeer.reconnect(); } catch (_) {}
+                    }
+                    if (!isP2POpen && receivedFiles.length === 0) {
+                        logDebug('尚未建立数据通道，重新触发连接握手...');
+                        startConnecting();
+                    }
+                }
             });
 
-            mobilePeer.on('error', (err) => {
-                logDebug(`PeerJS 异常: ${err.type || ''} ${err.message || ''}`);
-                statusText.textContent = '信令异常';
-                statusDesc.textContent = `无法连接公共信令通道，请检查手机外网访问权限。`;
-            });
+            // 重新连接按钮绑定
+            if (btnReconnect) {
+                btnReconnect.addEventListener('click', () => {
+                    logDebug('用户手动触发重新连接...');
+                    retryCount = 0;
+                    isP2POpen = false;
+                    initMobilePeer();
+                });
+            }
+
+            // 启动初始化
+            initMobilePeer();
 
             // 5. 数据包接收与流式组装流水线
             function handleIncomingPacket(packet) {
@@ -900,4 +1066,4 @@
     </script>
 </body>
 
-</html>
+</html
