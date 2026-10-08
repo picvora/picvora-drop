@@ -718,6 +718,42 @@
             </button>
         </section>
 
+        <!-- 📲 手机向电脑反向传图卡片 (全双工双向互传) -->
+        <section class="info-card reverse-upload-card" id="reverse-upload-card" style="display: none;">
+            <div class="card-header-row">
+                <span class="card-title">
+                    <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M8 11V3.5" />
+                        <path d="M4.5 7L8 3.5L11.5 7" />
+                        <rect x="2.5" y="11.5" width="11" height="3" rx="1" />
+                    </svg>
+                    反向传图至电脑
+                </span>
+                <span class="status-capsule" style="font-size: 10px; padding: 2px 8px; color: var(--primary);">双向全双工</span>
+            </div>
+            <div class="card-desc">从手机相册选择高清照片或商品实拍，免任何第三方中转，秒级直传 PC 端 Picvora 审图画廊。</div>
+            <div style="display: flex; gap: 8px; align-items: center; margin-top: 4px;">
+                <button type="button" class="btn btn-primary" id="btn-reverse-select" style="flex: 1; justify-content: center; gap: 6px;">
+                    <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="8" y1="2" x2="8" y2="14" />
+                        <line x1="2" y1="8" x2="14" y2="8" />
+                    </svg>
+                    <span id="btn-reverse-text">从相册选图传至电脑</span>
+                </button>
+                <input type="file" id="reverse-file-input" multiple accept="image/*" style="display: none;">
+            </div>
+            <!-- 反向上传进度 -->
+            <div class="reverse-progress-wrap" id="reverse-progress-wrap" style="display: none; margin-top: 10px;">
+                <div class="progress-bar-wrap" style="display: block; margin: 4px 0;">
+                    <div class="progress-bar-fill" id="reverse-progress-fill" style="width: 0%;"></div>
+                </div>
+                <div class="progress-text-row">
+                    <span id="reverse-progress-text">正在上传 0/0 张...</span>
+                    <span id="reverse-progress-pct">0%</span>
+                </div>
+            </div>
+        </section>
+
         <!-- 营销文案与爆款标签伴随面板 -->
         <section class="context-panel" id="context-panel">
             <div class="context-title" id="context-title">营销文案上下文</div>
@@ -1206,10 +1242,26 @@
                         }
                         statusDot.className = 'status-dot connected';
                         statusText.textContent = '已直连 PC';
-                        statusDesc.textContent = '点对点直通管道已就绪，等待 PC 端推送原图二进制流...';
+                        statusDesc.textContent = '点对点直通管道已就绪，支持电脑推图与手机向电脑反向传图。';
                         progressWrap.style.display = 'block';
                         progressRow.style.display = 'flex';
                         if (btnReconnect) btnReconnect.style.display = 'none';
+
+                        // 📲 自动同步手机机型指纹给 PC 端连接池
+                        try {
+                            const dev = detectMobileDeviceInfo();
+                            conn.send(JSON.stringify({
+                                type: 'CLIENT_HELLO',
+                                deviceAlias: dev.deviceAlias,
+                                platform: dev.platform,
+                                timestamp: Date.now()
+                            }));
+                            logDebug(`已向电脑端同步本机指纹: ${dev.deviceAlias} (${dev.platform})`);
+                        } catch (_) {}
+
+                        // 显示反向传图卡片
+                        const revCard = document.getElementById('reverse-upload-card');
+                        if (revCard) revCard.style.display = 'block';
                     });
 
                     conn.on('data', (data) => {
@@ -1219,6 +1271,8 @@
                     conn.on('close', () => {
                         logDebug('DataChannel 连接已断开');
                         isP2POpen = false;
+                        const revCard = document.getElementById('reverse-upload-card');
+                        if (revCard) revCard.style.display = 'none';
                         if (receivedFiles.length > 0) {
                             statusText.textContent = '传输完毕 (连接已释放)';
                             statusDesc.textContent = `已成功接收全部 ${receivedFiles.length} 张原图素材。`;
@@ -2088,6 +2142,163 @@
             }
             if (btnResetBottom) {
                 btnResetBottom.addEventListener('click', resetToDefaultState);
+            }
+
+            // 8. 手机机型指纹探测
+            function detectMobileDeviceInfo() {
+                const ua = navigator.userAgent || '';
+                let platform = 'Mobile';
+                let deviceAlias = '移动设备';
+
+                if (/iPhone/i.test(ua)) {
+                    platform = 'iOS';
+                    deviceAlias = 'iPhone';
+                } else if (/iPad/i.test(ua)) {
+                    platform = 'iPadOS';
+                    deviceAlias = 'iPad';
+                } else if (/Android/i.test(ua)) {
+                    platform = 'Android';
+                    if (/Xiaomi|Redmi/i.test(ua)) deviceAlias = '小米手机';
+                    else if (/HUAWEI|HONOR/i.test(ua)) deviceAlias = '华为手机';
+                    else if (/OPPO|OnePlus/i.test(ua)) deviceAlias = 'OPPO手机';
+                    else if (/vivo|iQOO/i.test(ua)) deviceAlias = 'vivo手机';
+                    else deviceAlias = '安卓设备';
+                }
+                return { platform, deviceAlias };
+            }
+
+            // 9. 手机反向传图推流流水线 (向 PC 逆向推流 64KB 分片)
+            const reverseUploadCard = document.getElementById('reverse-upload-card');
+            const btnReverseSelect = document.getElementById('btn-reverse-select');
+            const btnReverseText = document.getElementById('btn-reverse-text');
+            const reverseFileInput = document.getElementById('reverse-file-input');
+            const reverseProgressWrap = document.getElementById('reverse-progress-wrap');
+            const reverseProgressFill = document.getElementById('reverse-progress-fill');
+            const reverseProgressText = document.getElementById('reverse-progress-text');
+            const reverseProgressPct = document.getElementById('reverse-progress-pct');
+
+            if (btnReverseSelect && reverseFileInput) {
+                btnReverseSelect.addEventListener('click', () => {
+                    if (!isP2POpen || !activeConn || !activeConn.open) {
+                        alert('当前未连接电脑端，请等待 P2P 管道建立成功');
+                        return;
+                    }
+                    reverseFileInput.value = '';
+                    reverseFileInput.click();
+                });
+
+                reverseFileInput.addEventListener('change', async (e) => {
+                    const files = Array.from(e.target.files || []);
+                    if (files.length === 0) return;
+                    await sendFilesToHostPc(files);
+                });
+            }
+
+            async function sendFilesToHostPc(files) {
+                if (!activeConn || !activeConn.open) {
+                    alert('与电脑端的通信管道已断开');
+                    return;
+                }
+
+                btnReverseSelect.disabled = true;
+                if (reverseProgressWrap) reverseProgressWrap.style.display = 'block';
+                if (reverseProgressFill) reverseProgressFill.style.width = '0%';
+
+                const chunkSize = 64 * 1024; // 64KB 分片
+                let totalBytes = files.reduce((sum, f) => sum + f.size, 0);
+                let sentBytes = 0;
+
+                try {
+                    logDebug(`开始向电脑逆向推流 ${files.length} 张照片 (总计 ${(totalBytes / 1024 / 1024).toFixed(2)} MB)...`);
+                    
+                    // 发送反向会话起始包
+                    activeConn.send(JSON.stringify({
+                        type: 'REVERSE_SESSION_START',
+                        totalCount: files.length,
+                        totalBytes: totalBytes
+                    }));
+
+                    for (let fIdx = 0; fIdx < files.length; fIdx++) {
+                        const file = files[fIdx];
+                        const fileId = `phone_${Date.now()}_${fIdx + 1}`;
+                        const buffer = await file.arrayBuffer();
+                        const totalChunks = Math.ceil(buffer.byteLength / chunkSize);
+
+                        logDebug(`正在推送照片 [${fIdx + 1}/${files.length}] ${file.name} (${(file.size / 1024).toFixed(1)} KB, 切分 ${totalChunks} 片)`);
+                        
+                        // 发送单文件开始包
+                        activeConn.send(JSON.stringify({
+                            type: 'REVERSE_FILE_START',
+                            fileId: fileId,
+                            name: file.name,
+                            size: file.size,
+                            mimeType: file.type || 'image/jpeg',
+                            totalChunks: totalChunks
+                        }));
+
+                        // 逐片推流并检查背压
+                        for (let cIdx = 0; cIdx < totalChunks; cIdx++) {
+                            const start = cIdx * chunkSize;
+                            const end = Math.min(buffer.byteLength, start + chunkSize);
+                            const chunkData = buffer.slice(start, end);
+
+                            const packetHeader = new Uint8Array(8);
+                            const view = new DataView(packetHeader.buffer);
+                            view.setUint32(0, cIdx, false); // chunkIndex
+                            view.setUint32(4, totalChunks, false); // totalChunks
+
+                            const combined = new Uint8Array(8 + chunkData.byteLength);
+                            combined.set(packetHeader, 0);
+                            combined.set(new Uint8Array(chunkData), 8);
+
+                            // 等待底层缓冲排水
+                            const dc = activeConn.dataChannel;
+                            if (dc && dc.bufferedAmount > 512 * 1024) {
+                                await new Promise(res => {
+                                    const t = setInterval(() => {
+                                        if (!dc || dc.bufferedAmount <= 512 * 1024) {
+                                            clearInterval(t);
+                                            res();
+                                        }
+                                    }, 15);
+                                });
+                            }
+
+                            activeConn.send(combined.buffer);
+                            sentBytes += chunkData.byteLength;
+
+                            const pct = Math.min(99, Math.round((sentBytes / (totalBytes || 1)) * 100));
+                            if (reverseProgressFill) reverseProgressFill.style.width = `${pct}%`;
+                            if (reverseProgressPct) reverseProgressPct.textContent = `${pct}%`;
+                            if (reverseProgressText) reverseProgressText.textContent = `正在传输 [${fIdx + 1}/${files.length}] ${file.name}`;
+                            if (btnReverseText) btnReverseText.textContent = `上传中 ${pct}%...`;
+                        }
+
+                        // 单文件结束包
+                        activeConn.send(JSON.stringify({
+                            type: 'REVERSE_FILE_END',
+                            fileId: fileId,
+                            name: file.name
+                        }));
+                    }
+
+                    logDebug(`全部 ${files.length} 张照片已成功传输至电脑画廊！`);
+                    if (reverseProgressFill) reverseProgressFill.style.width = '100%';
+                    if (reverseProgressPct) reverseProgressPct.textContent = '100%';
+                    if (reverseProgressText) reverseProgressText.textContent = `已成功传送全部 ${files.length} 张照片`;
+                    if (btnReverseText) btnReverseText.textContent = `已传送 ${files.length} 张照片`;
+                    
+                    setTimeout(() => {
+                        if (btnReverseText) btnReverseText.textContent = '从相册选图传至电脑';
+                        if (reverseProgressWrap) reverseProgressWrap.style.display = 'none';
+                        btnReverseSelect.disabled = false;
+                    }, 2500);
+
+                } catch (upErr) {
+                    logDebug(`向电脑推流异常: ${upErr.message}`);
+                    if (btnReverseText) btnReverseText.textContent = '传输中断，点击重试';
+                    btnReverseSelect.disabled = false;
+                }
             }
 
         })();
