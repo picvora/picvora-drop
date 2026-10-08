@@ -652,16 +652,26 @@
             let currentReceivingFile = null; // { id, name, size, mimeType, totalChunks, chunks: [] }
             let metaContext = null;
 
-            // 国内外多源高可用 WebRTC STUN 穿透服务器池 (优先国内腾讯云 STUN，极速穿透电信/移动/联通 NAT)
+            // 国内外多源高可用 WebRTC STUN/TURN 穿透服务器池 (实测存活节点: 小米/B站/斗鱼/芒果TV + 全球免密 TCP 443 TURN 中继)
             const PEER_CONFIG = {
                 iceServers: [
-                    { urls: 'stun:stun.cloud.tencent.com:19302' },
-                    { urls: 'stun:stun.qq.com:3478' },
+                    { urls: 'stun:stun.miwifi.com:3478' },
+                    { urls: 'stun:stun.chat.bilibili.com:3478' },
+                    { urls: 'stun:stun.douyucdn.cn:18000' },
+                    { urls: 'stun:stun.hitv.com:3478' },
                     { urls: 'stun:stun.cloudflare.com:3478' },
-                    { urls: 'stun:stun.l.google.com:19302' },
-                    { urls: 'stun:stun1.l.google.com:19302' }
+                    {
+                        urls: [
+                            'turn:openrelay.metered.ca:80',
+                            'turn:openrelay.metered.ca:443',
+                            'turn:openrelay.metered.ca:443?transport=tcp'
+                        ],
+                        username: 'openrelayproject',
+                        credential: 'openrelayproject'
+                    }
                 ],
-                sdpSemantics: 'unified-plan'
+                sdpSemantics: 'unified-plan',
+                iceCandidatePoolSize: 2
             };
 
             // 4. 连接状态机与退避重试控制器
@@ -769,6 +779,45 @@
                     });
                     activeConn = conn;
 
+                    // 深度监听底层 WebRTC ICE 候选与状态机
+                    try {
+                        const bindPcDiagnostics = () => {
+                            const pc = conn.peerConnection;
+                            if (!pc) return;
+                            pc.addEventListener('icecandidate', (evt) => {
+                                if (evt.candidate) {
+                                    const c = evt.candidate;
+                                    logDebug(`[ICE候选] 收集到类型: ${c.type} (${c.protocol} ${c.address || c.relatedAddress || ''}:${c.port})`);
+                                } else {
+                                    logDebug('[ICE候选] 手机端候选收集完成');
+                                }
+                            });
+                            pc.addEventListener('iceconnectionstatechange', () => {
+                                logDebug(`[ICE状态] 当前状态: ${pc.iceConnectionState}`);
+                                if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
+                                    logDebug('WebRTC 底层通道已打通！');
+                                } else if (pc.iceConnectionState === 'failed') {
+                                    logDebug('WebRTC 底层打洞失败 (候选对均未通达)');
+                                }
+                            });
+                            pc.addEventListener('connectionstatechange', () => {
+                                logDebug(`[WebRTC状态] 全局状态: ${pc.connectionState}`);
+                            });
+                        };
+
+                        if (conn.peerConnection) {
+                            bindPcDiagnostics();
+                        } else {
+                            const checkTimer = setInterval(() => {
+                                if (conn.peerConnection) {
+                                    clearInterval(checkTimer);
+                                    bindPcDiagnostics();
+                                }
+                            }, 50);
+                            setTimeout(() => clearInterval(checkTimer), 2000);
+                        }
+                    } catch (_) {}
+
                     conn.on('open', () => {
                         if (connectTimeoutTimer) clearTimeout(connectTimeoutTimer);
                         isP2POpen = true;
@@ -812,12 +861,18 @@
                 if (connectTimeoutTimer) clearTimeout(connectTimeoutTimer);
                 if (isP2POpen) return;
 
+                // 针对 ICE 协商失败进行友好的中文白话解释
+                let displayReason = errMsg;
+                if (/negotiation.*failed/i.test(errMsg) || /ice.*failed/i.test(errMsg)) {
+                    displayReason = '局域网打洞未通 (请确认手机与电脑连接同一Wi-Fi，且已关闭VPN代理)';
+                }
+
                 if (retryCount < MAX_RETRIES) {
                     retryCount++;
                     const delay = retryCount * 1200;
                     logDebug(`连接协商受阻 (${errMsg})，将于 ${delay}ms 后进行第 ${retryCount} 次自动重连...`);
                     statusText.textContent = `握手重试 (${retryCount}/${MAX_RETRIES})...`;
-                    statusDesc.textContent = `网络协商抖动，正在自动重试... (${errMsg})`;
+                    statusDesc.textContent = `网络协商抖动，正在自动重试... (${displayReason})`;
                     setTimeout(() => {
                         if (!isP2POpen && mobilePeer && !mobilePeer.destroyed) {
                             if (mobilePeer.disconnected) {
@@ -829,7 +884,7 @@
                 } else {
                     logDebug(`连接重试耗尽: ${errMsg}`);
                     statusText.textContent = '连接失败';
-                    statusDesc.textContent = `无法与电脑端建立直连通道 (${errMsg})。请确保手机与电脑处于同一 Wi-Fi，或点击下方重试。`;
+                    statusDesc.textContent = `无法与电脑端建立直连通道 (${displayReason})。建议：1. 确认两端处于同一 Wi-Fi；2. 手机关闭代理/VPN；3. 点击下方重试按钮。`;
                     statusDot.className = 'status-dot';
                     if (btnReconnect) btnReconnect.style.display = 'flex';
                 }
@@ -1066,4 +1121,4 @@
     </script>
 </body>
 
-</html
+</html>
