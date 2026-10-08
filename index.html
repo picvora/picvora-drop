@@ -660,12 +660,19 @@
                     { urls: 'stun:stun.douyucdn.cn:18000' },
                     { urls: 'stun:stun.hitv.com:3478' },
                     { urls: 'stun:stun.cloudflare.com:3478' },
+                    // 全球高可用免密 TURN 中继 (优先 TCP 443 伪装 HTTPS 端口穿透防火墙与对称 NAT)
                     {
-                        urls: [
-                            'turn:openrelay.metered.ca:80',
-                            'turn:openrelay.metered.ca:443',
-                            'turn:openrelay.metered.ca:443?transport=tcp'
-                        ],
+                        urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+                        username: 'openrelayproject',
+                        credential: 'openrelayproject'
+                    },
+                    {
+                        urls: 'turn:openrelay.metered.ca:443',
+                        username: 'openrelayproject',
+                        credential: 'openrelayproject'
+                    },
+                    {
+                        urls: 'turn:openrelay.metered.ca:80',
                         username: 'openrelayproject',
                         credential: 'openrelayproject'
                     }
@@ -754,6 +761,73 @@
                 });
             }
 
+            // 提取底层 RTCPeerConnection 详细端点信息
+            async function inspectEndpoints(pc, isFailureReport = false) {
+                if (!pc) return null;
+                try {
+                    const stats = await pc.getStats();
+                    const candidateMap = new Map();
+                    const candidatePairs = [];
+                    let selectedPair = null;
+
+                    stats.forEach(report => {
+                        if (report.type === 'local-candidate' || report.type === 'remote-candidate') {
+                            candidateMap.set(report.id, report);
+                        } else if (report.type === 'candidate-pair') {
+                            candidatePairs.push(report);
+                            if (report.selected || report.nominated || report.state === 'succeeded') {
+                                selectedPair = report;
+                            }
+                        }
+                    });
+
+                    const formatCandidate = (c) => {
+                        if (!c) return '未知端点';
+                        const typeStr = c.candidateType || c.type || 'unknown';
+                        const protoStr = (c.protocol || 'udp').toUpperCase();
+                        const addr = c.address || c.ip || '';
+                        const port = c.port || '';
+                        const isMdns = /\.local$/i.test(addr);
+                        return `${typeStr} [${protoStr}] ${addr}:${port}${isMdns ? ' (mDNS域名)' : ''}`;
+                    };
+
+                    if (selectedPair) {
+                        const local = candidateMap.get(selectedPair.localCandidateId);
+                        const remote = candidateMap.get(selectedPair.remoteCandidateId);
+                        const rtt = selectedPair.currentRoundTripTime ? Math.round(selectedPair.currentRoundTripTime * 1000) + 'ms' : '极速';
+                        const isRelay = (local && local.candidateType === 'relay') || (remote && remote.candidateType === 'relay');
+                        const modeText = isRelay ? '云端 TURN 中继转发' : '局域网 P2P 直连';
+
+                        logDebug(`================ 通信端点已锁定 ================`);
+                        logDebug(`传输模式: ${modeText} (往返延迟: ${rtt})`);
+                        logDebug(`手机端点: ${formatCandidate(local)}`);
+                        logDebug(`电脑端点: ${formatCandidate(remote)}`);
+                        logDebug(`=================================================`);
+                        return { selectedPair, local, remote, modeText, rtt };
+                    }
+
+                    if (isFailureReport) {
+                        logDebug(`------------- 未找到成功激活的通信端点对 -------------`);
+                        if (candidatePairs.length === 0) {
+                            logDebug(`暂无可用候选对 (可能未收到电脑候选或信令未对齐)`);
+                        } else {
+                            logDebug(`已尝试的候选对 (${candidatePairs.length} 组):`);
+                            candidatePairs.slice(0, 5).forEach((pair, idx) => {
+                                const local = candidateMap.get(pair.localCandidateId);
+                                const remote = candidateMap.get(pair.remoteCandidateId);
+                                logDebug(`  #${idx + 1} 手机: ${formatCandidate(local)} <-> 电脑: ${formatCandidate(remote)} | 状态: ${pair.state}`);
+                            });
+                        }
+                        logDebug(`------------------------------------------------------`);
+                    }
+                } catch (err) {
+                    logDebug(`解析端点统计异常: ${err.message}`);
+                }
+                return null;
+            }
+
+            let relayWarningTimer = null;
+
             function startConnecting() {
                 if (isP2POpen) return;
                 statusText.textContent = retryCount > 0 ? `建立直连 (重试 ${retryCount}/${MAX_RETRIES})...` : '建立 P2P 管道...';
@@ -764,14 +838,25 @@
                     activeConn = null;
                 }
 
-                // 8秒连接超时保护，避免网络挂起
-                if (connectTimeoutTimer) clearTimeout(connectTimeoutTimer);
-                connectTimeoutTimer = setTimeout(() => {
+                if (relayWarningTimer) clearTimeout(relayWarningTimer);
+                relayWarningTimer = setTimeout(() => {
                     if (!isP2POpen) {
-                        logDebug('WebRTC 协商超时 (8s 未完成握手)');
-                        handleConnectionFailure('连接协商超时，两端可能处于不同子网或受防火墙限制');
+                        logDebug('[进度提示] 局域网直连探测未通，继续尝试 TURN 云端中继穿透...');
+                        statusDesc.textContent = '局域网直连探测受限，正在自动尝试 TURN 云端中继穿透...';
                     }
-                }, 8000);
+                }, 6000);
+
+                // 16秒连接超时保护，预留足够的 TURN 中继穿透窗口
+                if (connectTimeoutTimer) clearTimeout(connectTimeoutTimer);
+                connectTimeoutTimer = setTimeout(async () => {
+                    if (!isP2POpen) {
+                        logDebug('WebRTC 协商超时 (16s 未完成握手)');
+                        if (activeConn && activeConn.peerConnection) {
+                            await inspectEndpoints(activeConn.peerConnection, true);
+                        }
+                        handleConnectionFailure('连接协商超时 (局域网单播可能被Windows防火墙/公用网络阻断)');
+                    }
+                }, 16000);
 
                 try {
                     const conn = mobilePeer.connect(hostPeerId, {
@@ -784,22 +869,46 @@
                         const bindPcDiagnostics = () => {
                             const pc = conn.peerConnection;
                             if (!pc) return;
+
+                            // 拦截远端候选接入，实时打印电脑发来的端点
+                            if (!pc._picvoraProxyBound && pc.addIceCandidate) {
+                                pc._picvoraProxyBound = true;
+                                const origAddIceCandidate = pc.addIceCandidate.bind(pc);
+                                pc.addIceCandidate = function(candidate, ...args) {
+                                    if (candidate && candidate.candidate) {
+                                        const parts = candidate.candidate.trim().split(/\s+/);
+                                        const proto = parts[2] ? parts[2].toUpperCase() : 'UDP';
+                                        const ip = parts[4] || '';
+                                        const port = parts[5] || '';
+                                        const typIdx = parts.indexOf('typ');
+                                        const type = typIdx !== -1 ? parts[typIdx + 1] : 'unknown';
+                                        const isMdns = /\.local$/i.test(ip);
+                                        logDebug(`[收到电脑端点] 类型: ${type} [${proto}] ${ip}:${port}${isMdns ? ' (PC mDNS混淆)' : ''}`);
+                                    }
+                                    return origAddIceCandidate(candidate, ...args);
+                                };
+                            }
+
                             pc.addEventListener('icecandidate', (evt) => {
                                 if (evt.candidate) {
                                     const c = evt.candidate;
-                                    logDebug(`[ICE候选] 收集到类型: ${c.type} (${c.protocol} ${c.address || c.relatedAddress || ''}:${c.port})`);
+                                    logDebug(`[收集手机端点] 类型: ${c.type} [${(c.protocol || 'udp').toUpperCase()}] ${c.address || c.relatedAddress || ''}:${c.port}`);
                                 } else {
-                                    logDebug('[ICE候选] 手机端候选收集完成');
+                                    logDebug('[收集手机端点] 手机端本地候选收集完成');
                                 }
                             });
-                            pc.addEventListener('iceconnectionstatechange', () => {
+
+                            pc.addEventListener('iceconnectionstatechange', async () => {
                                 logDebug(`[ICE状态] 当前状态: ${pc.iceConnectionState}`);
                                 if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
-                                    logDebug('WebRTC 底层通道已打通！');
+                                    logDebug('WebRTC 底层连接建立成功！');
+                                    await inspectEndpoints(pc);
                                 } else if (pc.iceConnectionState === 'failed') {
                                     logDebug('WebRTC 底层打洞失败 (候选对均未通达)');
+                                    await inspectEndpoints(pc, true);
                                 }
                             });
+
                             pc.addEventListener('connectionstatechange', () => {
                                 logDebug(`[WebRTC状态] 全局状态: ${pc.connectionState}`);
                             });
@@ -818,13 +927,17 @@
                         }
                     } catch (_) {}
 
-                    conn.on('open', () => {
+                    conn.on('open', async () => {
+                        if (relayWarningTimer) clearTimeout(relayWarningTimer);
                         if (connectTimeoutTimer) clearTimeout(connectTimeoutTimer);
                         isP2POpen = true;
-                        logDebug(`WebRTC DataChannel 握手成功！局域网直通通道已建立。`);
+                        logDebug(`WebRTC DataChannel 握手成功！点对点传输管道已建立。`);
+                        if (conn.peerConnection) {
+                            await inspectEndpoints(conn.peerConnection);
+                        }
                         statusDot.className = 'status-dot connected';
                         statusText.textContent = '已直连 PC';
-                        statusDesc.textContent = '局域网点对点管道已通，等待 PC 端推送原图二进制流...';
+                        statusDesc.textContent = '点对点直通管道已就绪，等待 PC 端推送原图二进制流...';
                         progressWrap.style.display = 'block';
                         progressRow.style.display = 'flex';
                         if (btnReconnect) btnReconnect.style.display = 'none';
@@ -858,21 +971,22 @@
             }
 
             function handleConnectionFailure(errMsg) {
+                if (relayWarningTimer) clearTimeout(relayWarningTimer);
                 if (connectTimeoutTimer) clearTimeout(connectTimeoutTimer);
                 if (isP2POpen) return;
 
                 // 针对 ICE 协商失败进行友好的中文白话解释
                 let displayReason = errMsg;
                 if (/negotiation.*failed/i.test(errMsg) || /ice.*failed/i.test(errMsg)) {
-                    displayReason = '局域网打洞未通 (请确认手机与电脑连接同一Wi-Fi，且已关闭VPN代理)';
+                    displayReason = '局域网打洞未通 (PC网络可能为"公用网络"导致防火墙阻断入站，或未开启专用网络共享)';
                 }
 
                 if (retryCount < MAX_RETRIES) {
                     retryCount++;
-                    const delay = retryCount * 1200;
+                    const delay = retryCount * 1500;
                     logDebug(`连接协商受阻 (${errMsg})，将于 ${delay}ms 后进行第 ${retryCount} 次自动重连...`);
                     statusText.textContent = `握手重试 (${retryCount}/${MAX_RETRIES})...`;
-                    statusDesc.textContent = `网络协商抖动，正在自动重试... (${displayReason})`;
+                    statusDesc.textContent = `网络协商抖动，正在自动切换中继重试... (${displayReason})`;
                     setTimeout(() => {
                         if (!isP2POpen && mobilePeer && !mobilePeer.destroyed) {
                             if (mobilePeer.disconnected) {
@@ -883,8 +997,8 @@
                     }, delay);
                 } else {
                     logDebug(`连接重试耗尽: ${errMsg}`);
-                    statusText.textContent = '连接失败';
-                    statusDesc.textContent = `无法与电脑端建立直连通道 (${displayReason})。建议：1. 确认两端处于同一 Wi-Fi；2. 手机关闭代理/VPN；3. 点击下方重试按钮。`;
+                    statusText.textContent = '连接受阻';
+                    statusDesc.textContent = `无法建立直连 (${displayReason})。建议：1. 确认两端处于同一 Wi-Fi；2. 检查 PC 网络是否设为"公用网络"；3. 点击下方重新连接。`;
                     statusDot.className = 'status-dot';
                     if (btnReconnect) btnReconnect.style.display = 'flex';
                 }
