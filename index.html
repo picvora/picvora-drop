@@ -327,52 +327,6 @@
             margin-top: 4px;
         }
 
-        /* 文案与标签复制专区 */
-        .context-panel {
-            display: none;
-            background: var(--bg-card);
-            border: 1px solid var(--border-color);
-            border-radius: var(--radius-lg);
-            padding: 16px;
-            box-shadow: var(--shadow-sm);
-        }
-
-        .context-title {
-            font-size: 14px;
-            font-weight: 600;
-            margin-bottom: 6px;
-            color: var(--text-primary);
-        }
-
-        .context-text {
-            font-size: 12px;
-            color: var(--text-secondary);
-            background: var(--bg-card-subtle);
-            padding: 10px 12px;
-            border-radius: var(--radius-md);
-            border: 1px solid var(--border-subtle);
-            margin-bottom: 12px;
-            white-space: pre-wrap;
-            word-break: break-all;
-            max-height: 120px;
-            overflow-y: auto;
-        }
-
-        .tag-list {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 6px;
-            margin-bottom: 12px;
-        }
-
-        .tag-item {
-            font-size: 11px;
-            padding: 3px 8px;
-            background: var(--primary-light);
-            color: var(--primary);
-            border-radius: var(--radius-full);
-            font-weight: 500;
-        }
 
         .btn-group {
             display: flex;
@@ -473,13 +427,15 @@
         .card-size-badge {
             position: absolute;
             bottom: 4px;
-            right: 4px;
+            left: 4px;
             background: rgba(15, 23, 42, 0.75);
             backdrop-filter: blur(4px);
             color: #ffffff;
             font-size: 9px;
             padding: 1px 4px;
             border-radius: 3px;
+            pointer-events: none;
+            z-index: 2;
         }
 
         /* 底部常驻保存操作面板 */
@@ -879,22 +835,6 @@
             </div>
         </section>
 
-        <!-- 营销文案与爆款标签伴随面板 -->
-        <section class="context-panel" id="context-panel">
-            <div class="context-title" id="context-title">营销文案上下文</div>
-            <div class="context-text" id="context-text">暂无文案</div>
-            <div class="tag-list" id="tag-list"></div>
-            <div class="btn-group">
-                <button type="button" class="btn btn-primary" id="btn-copy-text">
-                    <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-                        <rect x="4.5" y="4.5" width="8" height="8" rx="1.5" />
-                        <path d="M3.5 11.5H2.5a1 1 0 0 1-1-1v-8a1 1 0 0 1 1-1h8a1 1 0 0 1 1 1v1" />
-                    </svg>
-                    复制营销文案
-                </button>
-                <button type="button" class="btn btn-secondary" id="btn-copy-tags">复制全部标签</button>
-            </div>
-        </section>
 
         <!-- 📋 跨端便签与双向剪贴板同步卡片 -->
         <section class="info-card clipboard-sync-card" id="clipboard-sync-card" style="display: none;">
@@ -1084,51 +1024,84 @@
                 return (crc ^ 0xFFFFFFFF) >>> 0;
             }
 
-            // 屏幕常亮防锁屏控制器 (Screen Wake Lock API)
+            // 屏幕常亮防锁屏控制器 (Screen Wake Lock API，支持阶梯式自动申请与全时守护)
             class WakeLockController {
                 constructor(badgeEl) {
                     this.badgeEl = badgeEl;
                     this.wakeLock = null;
                     this.active = false;
-                    // 页面可见性恢复时自动重新申请常亮锁
-                    document.addEventListener('visibilitychange', async () => {
-                        if (document.visibilityState === 'visible' && this.active && !this.wakeLock) {
-                            await this.acquire();
+                    this._retryTimers = [];
+
+                    // 1. 窗口获得系统焦点时自动申请 (扫码打开或应用切入前台后通常在此刻取得权限)
+                    window.addEventListener('focus', () => {
+                        if (this.active && !this.wakeLock) {
+                            this.acquire();
                         }
                     });
-                    // 页面任意触控/点击交互时自愈检测：确保在接收页面全时保持防锁屏
-                    const touchHeal = async () => {
+
+                    // 2. 页面可见性恢复时自动重新申请常亮锁
+                    document.addEventListener('visibilitychange', () => {
                         if (document.visibilityState === 'visible' && this.active && !this.wakeLock) {
-                            await this.acquire();
+                            this.acquire();
+                        }
+                    });
+
+                    // 3. 用户任意触碰或滚动页面时静默顺理成章激活常亮锁
+                    const silentTouchAcquire = () => {
+                        if (this.active && !this.wakeLock) {
+                            this.acquire();
                         }
                     };
-                    window.addEventListener('touchstart', touchHeal, { passive: true });
-                    window.addEventListener('click', touchHeal, { passive: true });
+                    window.addEventListener('touchstart', silentTouchAcquire, { passive: true });
+                    window.addEventListener('pointerdown', silentTouchAcquire, { passive: true });
+                    window.addEventListener('scroll', silentTouchAcquire, { passive: true });
+                    window.addEventListener('click', silentTouchAcquire, { passive: true });
                 }
+
                 async acquire() {
                     this.active = true;
-                    if ('wakeLock' in navigator) {
-                        try {
-                            this.wakeLock = await navigator.wakeLock.request('screen');
-                            this.wakeLock.addEventListener('release', () => {
-                                this.wakeLock = null;
-                                if (!this.active && this.badgeEl) {
-                                    this.badgeEl.style.display = 'none';
-                                    this.badgeEl.classList.remove('active');
-                                }
-                            });
-                            if (this.badgeEl) {
-                                this.badgeEl.style.display = 'inline-flex';
-                                this.badgeEl.classList.add('active');
+                    if (!('wakeLock' in navigator)) return;
+                    if (this.wakeLock) return; // 已经持有锁，无需重复申请
+
+                    try {
+                        this.wakeLock = await navigator.wakeLock.request('screen');
+                        this.wakeLock.addEventListener('release', () => {
+                            this.wakeLock = null;
+                            if (!this.active && this.badgeEl) {
+                                this.badgeEl.style.display = 'none';
+                                this.badgeEl.classList.remove('active');
                             }
-                            logDebug('已激活移动端屏幕常亮保护 (Screen Wake Lock)');
-                        } catch (err) {
-                            logDebug(`申请屏幕常亮未准许: ${err.message}`);
+                        });
+                        if (this.badgeEl) {
+                            this.badgeEl.style.display = 'inline-flex';
+                            this.badgeEl.classList.add('active');
                         }
+                        this._clearRetries();
+                        logDebug('已成功激活移动端屏幕常亮保护 (Screen Wake Lock)');
+                    } catch (err) {
+                        // 首次进入页面时若因焦点尚未就绪被拒绝，启动 150ms / 500ms / 1200ms / 2500ms 阶梯自动重试
+                        if (this.active && !this.wakeLock && this._retryTimers.length === 0) {
+                            [150, 500, 1200, 2500].forEach(delay => {
+                                const timer = setTimeout(() => {
+                                    if (this.active && !this.wakeLock) {
+                                        this.acquire();
+                                    }
+                                }, delay);
+                                this._retryTimers.push(timer);
+                            });
+                        }
+                        logDebug(`申请屏幕常亮未就绪 (${err.name || 'NotAllowed'}): ${err.message}`);
                     }
                 }
+
+                _clearRetries() {
+                    this._retryTimers.forEach(t => clearTimeout(t));
+                    this._retryTimers = [];
+                }
+
                 release() {
                     this.active = false;
+                    this._clearRetries();
                     if (this.wakeLock) {
                         try { this.wakeLock.release(); } catch (_) {}
                         this.wakeLock = null;
@@ -1176,7 +1149,7 @@
             // 3. UI 元素引用
             const wakeLockBadge = document.getElementById('wake-lock-badge');
             const wakeLockCtrl = new WakeLockController(wakeLockBadge);
-            // 💡 进入接收站页面即刻申请全时常亮防锁屏保护
+            // 💡 进入接收站页面即刻申请全时常亮防锁屏保护 (自动阶梯尝试)
             wakeLockCtrl.acquire();
 
             const statusDot = document.getElementById('status-dot');
@@ -1187,10 +1160,6 @@
             const progressRow = document.getElementById('progress-text-row');
             const progressCountText = document.getElementById('progress-count-text');
             const progressPctText = document.getElementById('progress-pct-text');
-            const contextPanel = document.getElementById('context-panel');
-            const contextTitle = document.getElementById('context-title');
-            const contextText = document.getElementById('context-text');
-            const tagList = document.getElementById('tag-list');
 
             // 跨端便签 UI 引用
             const clipboardSyncCard = document.getElementById('clipboard-sync-card');
@@ -1209,8 +1178,6 @@
             const saveRestrictionTip = document.getElementById('save-restriction-tip');
             const btnSaveAlbum = document.getElementById('btn-save-album');
             const btnSaveAlbumText = document.getElementById('btn-save-album-text');
-            const btnCopyText = document.getElementById('btn-copy-text');
-            const btnCopyTags = document.getElementById('btn-copy-tags');
             const btnReconnect = document.getElementById('btn-reconnect');
             const btnResetGallery = document.getElementById('btn-reset-gallery');
             const btnResetBottom = document.getElementById('btn-reset-bottom');
@@ -1541,6 +1508,11 @@
                         const revCard = document.getElementById('reverse-upload-card');
                         if (revCard) revCard.style.display = 'block';
                         if (clipboardSyncCard) clipboardSyncCard.style.display = 'block';
+
+                        // 🎯 建立新连接时清空上次历史残留便签
+                        if (mobileClipboardInput) mobileClipboardInput.value = '';
+                        if (mobileReceivedNote) mobileReceivedNote.style.display = 'none';
+                        if (mobileReceivedNoteText) mobileReceivedNoteText.textContent = '';
                     });
 
                     conn.on('data', (data) => {
@@ -1553,6 +1525,12 @@
                         // 💡 保持常亮防锁屏（用户仍在接收站检视素材，不提前熄屏）
                         const revCard = document.getElementById('reverse-upload-card');
                         if (revCard) revCard.style.display = 'none';
+
+                        // 🎯 设备断开时清空便签输入与回显
+                        if (mobileClipboardInput) mobileClipboardInput.value = '';
+                        if (mobileReceivedNote) mobileReceivedNote.style.display = 'none';
+                        if (mobileReceivedNoteText) mobileReceivedNoteText.textContent = '';
+
                         if (receivedFiles.length > 0) {
                             statusText.textContent = '通道休眠 (素材已保全)';
                             statusDesc.textContent = `已成功接收全部 ${receivedFiles.length} 张原图素材。切回前台将自动恢复直连通道，支持继续接收新图或从相册回传。`;
@@ -1647,7 +1625,6 @@
                         if (msg.type === 'SESSION_START') {
                             logDebug(`收到会话元数据: 共 ${msg.totalCount} 张图, 大小 ${(msg.totalBytes / 1024 / 1024).toFixed(2)} MB`);
                             metaContext = msg;
-                            renderContextPanel(msg);
                             gallerySection.style.display = 'block';
                         } else if (msg.type === 'FILE_START') {
                             const isVid = Boolean(msg.isVideo || (msg.mimeType && msg.mimeType.startsWith('video/')));
@@ -1851,24 +1828,6 @@
                 updateSaveActionUI();
 
                 currentReceivingFile = null;
-            }
-
-            // 渲染文案面板
-            function renderContextPanel(meta) {
-                if (!meta.title && !meta.desc && (!meta.tags || meta.tags.length === 0)) return;
-                contextPanel.style.display = 'block';
-                contextTitle.textContent = meta.title || '商品推广素材';
-                contextText.textContent = meta.desc || meta.title || '';
-
-                tagList.innerHTML = '';
-                if (Array.isArray(meta.tags)) {
-                    meta.tags.forEach(t => {
-                        const span = document.createElement('span');
-                        span.className = 'tag-item';
-                        span.textContent = t.startsWith('#') ? t : `#${t}`;
-                        tagList.appendChild(span);
-                    });
-                }
             }
 
             // 格式化文件体积大小 (智能适配 B/KB/MB/GB，彻底杜绝数十万超大Kb数字)
@@ -2591,27 +2550,6 @@
                 }
             });
 
-            // 复制文案与标签
-            btnCopyText.addEventListener('click', () => {
-                const text = contextText.textContent || '';
-                navigator.clipboard.writeText(text).then(() => {
-                    btnCopyText.textContent = '已复制到剪贴板！';
-                    setTimeout(() => { btnCopyText.textContent = '复制营销文案'; }, 2000);
-                }).catch(() => {
-                    alert('复制失败，请手动长按文字复制');
-                });
-            });
-
-            btnCopyTags.addEventListener('click', () => {
-                const tags = Array.from(tagList.querySelectorAll('.tag-item')).map(el => el.textContent).join(' ');
-                navigator.clipboard.writeText(tags).then(() => {
-                    btnCopyTags.textContent = '标签已复制！';
-                    setTimeout(() => { btnCopyTags.textContent = '复制全部标签'; }, 2000);
-                }).catch(() => {
-                    alert('复制失败，请手动长按文字复制');
-                });
-            });
-
             // 8. 跨端双向便签与剪贴板交互
             if (btnSendClipboardToPc && mobileClipboardInput) {
                 btnSendClipboardToPc.addEventListener('click', () => {
@@ -2667,6 +2605,11 @@
                 // 💡 保持全时防锁屏常亮，用户仍在接收站前台待命，不释放 Wake Lock
                 updateSaveActionUI();
 
+                // 🎯 清空便签输入与已接收的便签回显
+                if (mobileClipboardInput) mobileClipboardInput.value = '';
+                if (mobileReceivedNote) mobileReceivedNote.style.display = 'none';
+                if (mobileReceivedNoteText) mobileReceivedNoteText.textContent = '';
+
                 // 释放已接收图片的 Blob URL 内存
                 receivedFiles.forEach(rf => {
                     try { URL.revokeObjectURL(rf.url); } catch (_) {}
@@ -2682,7 +2625,6 @@
                 galleryCounter.textContent = '已接收素材 (0 个)';
                 if (btnResetGallery) btnResetGallery.style.display = 'none';
                 bottomAction.style.display = 'none';
-                contextPanel.style.display = 'none';
 
                 // 重置进度条
                 progressFill.style.width = '0%';
