@@ -187,6 +187,78 @@
             height: 9px;
         }
 
+        /* 视频卡片中央播放微光图标 */
+        .card-video-play-center {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: rgba(15, 23, 42, 0.65);
+            backdrop-filter: blur(4px);
+            -webkit-backdrop-filter: blur(4px);
+            border: 1px solid rgba(255, 255, 255, 0.25);
+            color: #ffffff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            pointer-events: none;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        }
+
+        .card-video-play-center svg {
+            margin-left: 2px;
+        }
+
+        /* 单图快速保存下载按钮 */
+        .card-quick-save-btn {
+            position: absolute;
+            bottom: 4px;
+            right: 4px;
+            width: 24px;
+            height: 24px;
+            border-radius: 6px;
+            background: rgba(15, 23, 42, 0.75);
+            backdrop-filter: blur(4px);
+            -webkit-backdrop-filter: blur(4px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: #ffffff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            z-index: 3;
+            transition: all 0.15s ease;
+        }
+
+        .card-quick-save-btn:active {
+            transform: scale(0.92);
+            background: var(--primary);
+        }
+
+        /* 📱 底部多图保存受限说明条 */
+        .save-restriction-tip {
+            display: flex;
+            align-items: flex-start;
+            gap: 6px;
+            padding: 8px 10px;
+            background: var(--primary-light);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            margin-bottom: 8px;
+            font-size: 11px;
+            line-height: 1.45;
+            color: var(--text-secondary);
+        }
+
+        .save-restriction-tip svg {
+            color: var(--primary);
+            flex-shrink: 0;
+            margin-top: 2px;
+        }
+
         /* 主体内容流 */
         .main-container {
             flex: 1;
@@ -874,24 +946,24 @@
             <div class="gallery-grid" id="gallery-grid"></div>
         </section>
 
-        <!-- 底部一键转存相册与ZIP打包面板 -->
+        <!-- 底部一键转存相册面板 -->
         <div class="bottom-action-panel" id="bottom-action-panel">
+            <!-- 📱 多图保存受限时的友好提示说明条 -->
+            <div class="save-restriction-tip" id="save-restriction-tip" style="display: none;">
+                <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="8" cy="8" r="7" />
+                    <line x1="8" y1="5" x2="8" y2="8.5" />
+                    <circle cx="8" cy="11.5" r="0.75" fill="currentColor" />
+                </svg>
+                <span>提示：当前浏览器受系统安全限制，不支持一键批量存入相册。建议点击卡片预览大图，长按“保存图片”；或点击每张卡片右下角“保存”图标逐张存盘。</span>
+            </div>
+
             <button type="button" class="btn btn-primary btn-full" id="btn-save-album">
                 <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M8 2v8.5M4.5 7.5L8 11l3.5-3.5" />
                     <rect x="2" y="11" width="12" height="3" rx="1" />
                 </svg>
-                一键转存系统相册
-            </button>
-            <button type="button" class="btn btn-secondary btn-full" id="btn-save-zip" style="margin-top: 8px; justify-content: center; gap: 6px; background: var(--bg-card); border-color: var(--primary); color: var(--primary); font-weight: 600;">
-                <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M2 12V3.5a1.5 1.5 0 0 1 1.5-1.5h9a1.5 1.5 0 0 1 1.5 1.5V12" />
-                    <path d="M6 14h4" />
-                    <path d="M8 10v4" />
-                    <circle cx="8" cy="5" r="1" />
-                    <circle cx="8" cy="8" r="1" />
-                </svg>
-                打包 ZIP 批量保存 (防浏览器拦截推荐)
+                <span id="btn-save-album-text">一键存入系统相册</span>
             </button>
             <button type="button" class="btn btn-secondary btn-full" id="btn-reset-bottom" style="margin-top: 8px; justify-content: center; gap: 6px;">
                 <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
@@ -1018,11 +1090,20 @@
                     this.badgeEl = badgeEl;
                     this.wakeLock = null;
                     this.active = false;
+                    // 页面可见性恢复时自动重新申请常亮锁
                     document.addEventListener('visibilitychange', async () => {
                         if (document.visibilityState === 'visible' && this.active && !this.wakeLock) {
                             await this.acquire();
                         }
                     });
+                    // 页面任意触控/点击交互时自愈检测：确保在接收页面全时保持防锁屏
+                    const touchHeal = async () => {
+                        if (document.visibilityState === 'visible' && this.active && !this.wakeLock) {
+                            await this.acquire();
+                        }
+                    };
+                    window.addEventListener('touchstart', touchHeal, { passive: true });
+                    window.addEventListener('click', touchHeal, { passive: true });
                 }
                 async acquire() {
                     this.active = true;
@@ -1095,6 +1176,8 @@
             // 3. UI 元素引用
             const wakeLockBadge = document.getElementById('wake-lock-badge');
             const wakeLockCtrl = new WakeLockController(wakeLockBadge);
+            // 💡 进入接收站页面即刻申请全时常亮防锁屏保护
+            wakeLockCtrl.acquire();
 
             const statusDot = document.getElementById('status-dot');
             const statusText = document.getElementById('status-text');
@@ -1123,8 +1206,9 @@
             const galleryGrid = document.getElementById('gallery-grid');
             const galleryCounter = document.getElementById('gallery-counter');
             const bottomAction = document.getElementById('bottom-action-panel');
+            const saveRestrictionTip = document.getElementById('save-restriction-tip');
             const btnSaveAlbum = document.getElementById('btn-save-album');
-            const btnSaveZip = document.getElementById('btn-save-zip');
+            const btnSaveAlbumText = document.getElementById('btn-save-album-text');
             const btnCopyText = document.getElementById('btn-copy-text');
             const btnCopyTags = document.getElementById('btn-copy-tags');
             const btnReconnect = document.getElementById('btn-reconnect');
@@ -1466,7 +1550,7 @@
                     conn.on('close', () => {
                         logDebug('DataChannel 连接已断开');
                         isP2POpen = false;
-                        wakeLockCtrl.release();
+                        // 💡 保持常亮防锁屏（用户仍在接收站检视素材，不提前熄屏）
                         const revCard = document.getElementById('reverse-upload-card');
                         if (revCard) revCard.style.display = 'none';
                         if (receivedFiles.length > 0) {
@@ -1630,6 +1714,7 @@
                             progressPctText.textContent = '100%';
                             bottomAction.style.display = 'block';
                             if (btnResetGallery) btnResetGallery.style.display = 'inline-flex';
+                            updateSaveActionUI();
                         }
                     } catch (e) {
                         logDebug(`解析控制报文失败: ${e.message}`);
@@ -1758,11 +1843,12 @@
                 };
 
                 receivedFiles.push(item);
-                logDebug(`组装${item.isVideo ? '短视频' : '素材'}成功: ${name} (真实体积: ${(blob.size / 1024).toFixed(1)} KB, 包含 ${validParts.length} 个数据分片)`);
+                logDebug(`组装${item.isVideo ? '短视频' : '素材'}成功: ${name} (真实体积: ${formatFileSize(blob.size)}, 包含 ${validParts.length} 个数据分片)`);
 
                 appendGalleryCard(item);
                 galleryCounter.textContent = `已接收素材 (${receivedFiles.length} 个)`;
                 if (btnResetGallery) btnResetGallery.style.display = 'inline-flex';
+                updateSaveActionUI();
 
                 currentReceivingFile = null;
             }
@@ -1785,6 +1871,34 @@
                 }
             }
 
+            // 格式化文件体积大小 (智能适配 B/KB/MB/GB，彻底杜绝数十万超大Kb数字)
+            function formatFileSize(bytes) {
+                if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
+                if (bytes < 1024) return `${bytes} B`;
+                if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+                if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+                return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+            }
+
+            // 卡片徽章紧凑体积格式化
+            function formatBadgeSize(bytes) {
+                if (!Number.isFinite(bytes) || bytes <= 0) return '0B';
+                if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)}K`;
+                if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)}M`;
+                return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)}G`;
+            }
+
+            // 单个素材原生下载或调用原生单图分享保存
+            function downloadSingleFile(item) {
+                if (!item || !item.url) return;
+                const a = document.createElement('a');
+                a.href = item.url;
+                a.download = item.name || (item.isVideo ? 'video.mp4' : 'material.jpg');
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+            }
+
             // 渲染单张九宫格卡片 (图片/短视频)
             function appendGalleryCard(item) {
                 const card = document.createElement('div');
@@ -1799,16 +1913,30 @@
                     videoThumb.style.width = '100%';
                     videoThumb.style.height = '100%';
                     videoThumb.style.objectFit = 'cover';
+                    videoThumb.addEventListener('loadedmetadata', () => {
+                        try { videoThumb.currentTime = 0.1; } catch (_) {}
+                    });
                     card.appendChild(videoThumb);
 
-                    // 视频专属角标
+                    // 视频卡片中央毛玻璃播放三角形图标
+                    const playCenter = document.createElement('div');
+                    playCenter.className = 'card-video-play-center';
+                    playCenter.innerHTML = `
+                        <svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor">
+                            <polygon points="5 3 13 8 5 13" />
+                        </svg>
+                    `;
+                    card.appendChild(playCenter);
+
+                    // 视频专属角标 (纯矢量细线框摄像机)
                     const videoBadge = document.createElement('span');
                     videoBadge.className = 'card-video-badge';
                     videoBadge.innerHTML = `
-                        <svg viewBox="0 0 16 16" fill="currentColor">
-                            <polygon points="4,2 14,8 4,14" />
+                        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                            <polygon points="14 4 10 7 10 13 14 16 14 4" fill="currentColor"/>
+                            <rect x="2" y="4" width="8" height="9" rx="1.5" />
                         </svg>
-                        <span>VIDEO</span>
+                        <span>视频</span>
                     `;
                     card.appendChild(videoBadge);
                 } else {
@@ -1824,10 +1952,27 @@
 
                 const sizeBadge = document.createElement('span');
                 sizeBadge.className = 'card-size-badge';
-                sizeBadge.textContent = `${(item.size / 1024).toFixed(0)}K`;
+                sizeBadge.textContent = formatBadgeSize(item.size);
+
+                // 单张快速保存按钮 (纯线框下载图标)
+                const quickSaveBtn = document.createElement('button');
+                quickSaveBtn.type = 'button';
+                quickSaveBtn.className = 'card-quick-save-btn';
+                quickSaveBtn.title = '单张保存';
+                quickSaveBtn.innerHTML = `
+                    <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M8 2.5v7M5 7l3 3 3-3" />
+                        <path d="M3 13.5h10" />
+                    </svg>
+                `;
+                quickSaveBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    downloadSingleFile(item);
+                });
 
                 card.appendChild(seq);
                 card.appendChild(sizeBadge);
+                card.appendChild(quickSaveBtn);
 
                 // 点击卡片呼起沉浸式原生灯箱
                 card.addEventListener('click', () => {
@@ -2010,7 +2155,7 @@
                     btnMobileLightboxNext.style.display = total > 1 ? 'flex' : 'none';
                 }
 
-                const sizeText = curItem.size ? `${(curItem.size / 1024).toFixed(1)} KB` : '';
+                const sizeText = curItem.size ? formatFileSize(curItem.size) : '';
                 const typeText = curItem.isVideo ? 'MP4短视频' : (curItem.mimeType || 'JPEG');
                 if (mobileLightboxMeta) {
                     mobileLightboxMeta.textContent = `[${curPos}/${total}] · ${typeText} · ${sizeText}`;
@@ -2378,191 +2523,73 @@
                 }
             });
 
-            // 6. 纯前端原生轻量 ZIP 打包生成器 (Store 模式，纯 TypedArray 组装，零外部依赖，100% 根除移动浏览器多文件弹窗拦截)
-            async function generateAndDownloadZip(files, zipFilename = 'picvora_materials.zip') {
-                if (!files || files.length === 0) {
-                    alert('当前没有可供打包保存的素材');
-                    return;
+            // 6. 系统与浏览器多图保存能力检测 (Web Share API Level 2 Multi-File Capability)
+            function detectMultiShareCapability() {
+                if (!navigator.canShare || typeof navigator.canShare !== 'function' || !navigator.share) {
+                    return { supported: false, reason: 'api_missing' };
                 }
-
-                logDebug(`[ZIP生成器] 正在为 ${files.length} 个素材创建无损 ZIP 归档包 (Store模式)...`);
-                const statusTextBefore = statusText.textContent;
-                statusText.textContent = '正在打包 ZIP...';
-
                 try {
-                    const textEncoder = new TextEncoder();
-                    const fileEntries = [];
-
-                    // 1. 读取全部文件 Buffer 并计算 CRC32
-                    for (let i = 0; i < files.length; i++) {
-                        const f = files[i];
-                        const arrayBuf = await f.blob.arrayBuffer();
-                        const bytes = new Uint8Array(arrayBuf);
-                        const crc = calculateCrc32(bytes);
-                        const nameBytes = textEncoder.encode(f.name || `material_${i + 1}.jpg`);
-
-                        fileEntries.push({
-                            name: f.name || `material_${i + 1}.jpg`,
-                            nameBytes: nameBytes,
-                            bytes: bytes,
-                            crc: crc,
-                            size: bytes.length,
-                            offset: 0
-                        });
-                    }
-
-                    // 2. 计算总大小并分配单一连续 TypedArray
-                    let totalSize = 0;
-                    fileEntries.forEach(entry => {
-                        // Local Header (30 字节) + filename + data
-                        entry.offset = totalSize;
-                        totalSize += 30 + entry.nameBytes.length + entry.size;
-                    });
-
-                    const cdOffset = totalSize;
-                    let cdSize = 0;
-                    fileEntries.forEach(entry => {
-                        // Central Directory Header (46 字节) + filename
-                        cdSize += 46 + entry.nameBytes.length;
-                    });
-                    totalSize += cdSize + 22; // EOCD (22 字节)
-
-                    const zipBuffer = new Uint8Array(totalSize);
-                    const view = new DataView(zipBuffer.buffer);
-
-                    // 3. 写入 Local File Headers & File Data
-                    fileEntries.forEach(entry => {
-                        let p = entry.offset;
-                        // signature: 0x04034b50 (PK\x03\x04)
-                        view.setUint32(p, 0x04034b50, true); p += 4;
-                        view.setUint16(p, 20, true); p += 2; // version needed
-                        view.setUint16(p, 0x0800, true); p += 2; // flags (UTF-8)
-                        view.setUint16(p, 0, true); p += 2; // compression: store (0)
-                        view.setUint16(p, 0, true); p += 2; // mod time
-                        view.setUint16(p, 0, true); p += 2; // mod date
-                        view.setUint32(p, entry.crc, true); p += 4; // crc-32
-                        view.setUint32(p, entry.size, true); p += 4; // compressed size
-                        view.setUint32(p, entry.size, true); p += 4; // uncompressed size
-                        view.setUint16(p, entry.nameBytes.length, true); p += 2; // name length
-                        view.setUint16(p, 0, true); p += 2; // extra field length
-                        zipBuffer.set(entry.nameBytes, p); p += entry.nameBytes.length;
-                        zipBuffer.set(entry.bytes, p);
-                    });
-
-                    // 4. 写入 Central Directory Headers
-                    let cdPos = cdOffset;
-                    fileEntries.forEach(entry => {
-                        let p = cdPos;
-                        // signature: 0x02014b50 (PK\x01\x02)
-                        view.setUint32(p, 0x02014b50, true); p += 4;
-                        view.setUint16(p, 20, true); p += 2; // version made by
-                        view.setUint16(p, 20, true); p += 2; // version needed
-                        view.setUint16(p, 0x0800, true); p += 2; // flags (UTF-8)
-                        view.setUint16(p, 0, true); p += 2; // compression: store (0)
-                        view.setUint16(p, 0, true); p += 2; // mod time
-                        view.setUint16(p, 0, true); p += 2; // mod date
-                        view.setUint32(p, entry.crc, true); p += 4; // crc-32
-                        view.setUint32(p, entry.size, true); p += 4; // compressed size
-                        view.setUint32(p, entry.size, true); p += 4; // uncompressed size
-                        view.setUint16(p, entry.nameBytes.length, true); p += 2; // name length
-                        view.setUint16(p, 0, true); p += 2; // extra field length
-                        view.setUint16(p, 0, true); p += 2; // comment length
-                        view.setUint16(p, 0, true); p += 2; // disk start
-                        view.setUint16(p, 0, true); p += 2; // internal attrs
-                        view.setUint32(p, 0, true); p += 4; // external attrs
-                        view.setUint32(p, entry.offset, true); p += 4; // relative offset
-                        zipBuffer.set(entry.nameBytes, p);
-                        cdPos += 46 + entry.nameBytes.length;
-                    });
-
-                    // 5. 写入 End of Central Directory (EOCD)
-                    let eocdPos = cdPos;
-                    // signature: 0x06054b50 (PK\x05\x06)
-                    view.setUint32(eocdPos, 0x06054b50, true); eocdPos += 4;
-                    view.setUint16(eocdPos, 0, true); eocdPos += 2; // disk number
-                    view.setUint16(eocdPos, 0, true); eocdPos += 2; // disk with CD
-                    view.setUint16(eocdPos, fileEntries.length, true); eocdPos += 2; // total entries on disk
-                    view.setUint16(eocdPos, fileEntries.length, true); eocdPos += 2; // total entries
-                    view.setUint32(eocdPos, cdSize, true); eocdPos += 4; // size of CD
-                    view.setUint32(eocdPos, cdOffset, true); eocdPos += 4; // offset of CD
-                    view.setUint16(eocdPos, 0, true); // comment length
-
-                    // 6. 生成 ZIP Blob 并触发单次原生下载
-                    const zipBlob = new Blob([zipBuffer], { type: 'application/zip' });
-                    const zipUrl = URL.createObjectURL(zipBlob);
-                    const a = document.createElement('a');
-                    a.href = zipUrl;
-                    a.download = zipFilename;
-                    document.body.appendChild(a);
-                    a.click();
-                    document.body.removeChild(a);
-                    setTimeout(() => URL.revokeObjectURL(zipUrl), 10000);
-
-                    logDebug(`[ZIP生成器] 打包成功！ZIP 体积: ${(zipBlob.size / 1024 / 1024).toFixed(2)} MB`);
-                    statusText.textContent = 'ZIP 已保存';
-                    setTimeout(() => { statusText.textContent = statusTextBefore; }, 2000);
-                } catch (err) {
-                    logDebug(`[ZIP生成器异常] ${err.message}`);
-                    alert(`ZIP 打包失败: ${err.message}`);
-                    statusText.textContent = statusTextBefore;
+                    // 构造两个微型假文件检测底层系统是否准许一次性 share 多文件注入相册
+                    const dummy1 = new File([new Uint8Array([0])], 'probe1.jpg', { type: 'image/jpeg' });
+                    const dummy2 = new File([new Uint8Array([0])], 'probe2.jpg', { type: 'image/jpeg' });
+                    const canMulti = navigator.canShare({ files: [dummy1, dummy2] });
+                    return { supported: Boolean(canMulti), reason: canMulti ? 'ok' : 'multi_files_unsupported' };
+                } catch (e) {
+                    return { supported: false, reason: 'exception' };
                 }
             }
 
-            // 绑定 ZIP 批量保存按钮
-            if (btnSaveZip) {
-                btnSaveZip.addEventListener('click', () => {
-                    if (receivedFiles.length === 0) return;
-                    const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-                    const zipName = `picvora_materials_${dateStr}.zip`;
-                    generateAndDownloadZip(receivedFiles, zipName);
-                });
+            // 动态响应并刷新保存面板 (根据客户端多图能力动态呈现引导或一键存相册)
+            function updateSaveActionUI() {
+                const check = detectMultiShareCapability();
+                const count = receivedFiles.length;
+                if (check.supported) {
+                    // 支持系统原生多图相册注入 (如 iOS Safari 15+)
+                    if (saveRestrictionTip) saveRestrictionTip.style.display = 'none';
+                    if (btnSaveAlbumText) {
+                        btnSaveAlbumText.textContent = count > 0 ? `一键存入系统相册 (${count} 个)` : '一键存入系统相册';
+                    }
+                } else {
+                    // 不支持批量存图 (Android Chrome / 微信 / 大多数移动环境安全沙盒隔离)
+                    if (saveRestrictionTip) saveRestrictionTip.style.display = 'flex';
+                    if (btnSaveAlbumText) {
+                        btnSaveAlbumText.textContent = count > 0 ? `查看大图长按存相册 (${count} 个)` : '查看大图长按存相册';
+                    }
+                }
             }
 
-            // 7. 一键转存系统相册 (Web Share API)
+            // 7. 一键存相册或引导大图长按保存
             btnSaveAlbum.addEventListener('click', async () => {
                 if (receivedFiles.length === 0) return;
 
-                // 尝试构建 File 列表
-                const filesToShare = receivedFiles.map(rf => {
-                    const defaultMime = rf.isVideo ? 'video/mp4' : (rf.mimeType || 'image/jpeg');
-                    return new File([rf.blob], rf.name, { type: defaultMime });
-                });
-
-                // 检测是否支持 Web Share API Files 格式
-                if (navigator.canShare && navigator.canShare({ files: filesToShare })) {
+                const check = detectMultiShareCapability();
+                if (check.supported) {
+                    // 支持原生多文件 Web Share (如 iOS Safari)
+                    const filesToShare = receivedFiles.map(rf => {
+                        const defaultMime = rf.isVideo ? 'video/mp4' : (rf.mimeType || 'image/jpeg');
+                        return new File([rf.blob], rf.name, { type: defaultMime });
+                    });
                     try {
-                        logDebug('正在唤起系统原生分享面板转存相册...');
+                        logDebug(`正在唤起系统原生分享面板，转存 ${filesToShare.length} 个素材至相册...`);
                         await navigator.share({
                             files: filesToShare,
                             title: metaContext?.title || 'Picvora 素材',
                             text: '来自 PC 端 Picvora 局域网隔空直传'
                         });
-                        logDebug('系统分享面板唤起并完成');
+                        logDebug('系统分享面板转存完成');
                     } catch (shareErr) {
                         if (shareErr.name !== 'AbortError') {
-                            logDebug(`系统分享调用异常: ${shareErr.message}，降级逐张下载`);
-                            fallbackDownloadAll();
+                            logDebug(`系统原生分享调用失败: ${shareErr.message}，自动打开大图引导逐张长按存盘`);
+                            openMobileLightbox(0);
                         }
                     }
                 } else {
-                    logDebug('当前浏览器环境不支持 Web Share 多文件直传，启用逐张下载模式');
-                    fallbackDownloadAll();
+                    // 移动浏览器受安全沙盒限制无法批量自动写入相册：
+                    // 绝不使用 ZIP 打包（手机普通用户无法解压），而是直接引导用户进入大图，轻点即可长按保存到相册
+                    logDebug('当前浏览器受系统沙盒限制不支持多图自动写入，打开大图灯箱引导长按保存相册');
+                    openMobileLightbox(0);
                 }
             });
-
-            function fallbackDownloadAll() {
-                receivedFiles.forEach((rf, i) => {
-                    setTimeout(() => {
-                        const a = document.createElement('a');
-                        a.href = rf.url;
-                        a.download = rf.name;
-                        document.body.appendChild(a);
-                        a.click();
-                        document.body.removeChild(a);
-                    }, i * 200);
-                });
-                alert('已为您触发批量下载，请在系统下载管理器中查收并移入相册。');
-            }
 
             // 复制文案与标签
             btnCopyText.addEventListener('click', () => {
@@ -2637,7 +2664,8 @@
             function resetToDefaultState() {
                 logDebug('用户手动触发清空接收站，恢复初始就绪状态...');
                 closeMobileLightbox();
-                wakeLockCtrl.release();
+                // 💡 保持全时防锁屏常亮，用户仍在接收站前台待命，不释放 Wake Lock
+                updateSaveActionUI();
 
                 // 释放已接收图片的 Blob URL 内存
                 receivedFiles.forEach(rf => {
@@ -2760,7 +2788,7 @@
                         const buffer = await file.arrayBuffer();
                         const totalChunks = Math.ceil(buffer.byteLength / chunkSize);
 
-                        logDebug(`正在推送照片 [${fIdx + 1}/${files.length}] ${file.name} (${(file.size / 1024).toFixed(1)} KB, 切分 ${totalChunks} 片)`);
+                        logDebug(`正在推送照片 [${fIdx + 1}/${files.length}] ${file.name} (${formatFileSize(file.size)}, 切分 ${totalChunks} 片)`);
                         
                         // 发送单文件开始包
                         activeConn.send(JSON.stringify({
@@ -2838,6 +2866,9 @@
                     btnReverseSelect.disabled = false;
                 }
             }
+
+            // 初始化检测多图保存能力
+            updateSaveActionUI();
 
         })();
     </script>
