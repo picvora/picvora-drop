@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Picvora 隔空接收站</title>
+    <title>Picvora 跨端互传接收站</title>
     <!-- 引入 PeerJS 核心库 (优先使用公共 CDN，支持离线或镜像) -->
     <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
     <style>
@@ -144,6 +144,47 @@
         @keyframes pulse {
             0%, 100% { opacity: 1; transform: scale(1); }
             50% { opacity: 0.5; transform: scale(1.2); }
+        }
+
+        /* 屏幕常亮微光指示徽标 */
+        .wake-lock-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 3px 8px;
+            border-radius: var(--radius-full);
+            background: var(--success-light);
+            border: 1px solid rgba(34, 197, 94, 0.3);
+            color: var(--success);
+            font-size: 10px;
+            font-weight: 600;
+            transition: all 0.2s ease;
+        }
+
+        .wake-lock-badge.active {
+            box-shadow: 0 0 8px rgba(34, 197, 94, 0.4);
+        }
+
+        /* 视频素材角标 */
+        .card-video-badge {
+            position: absolute;
+            top: 4px;
+            right: 4px;
+            background: rgba(15, 23, 42, 0.82);
+            backdrop-filter: blur(4px);
+            color: #38bdf8;
+            font-size: 9px;
+            font-weight: 700;
+            padding: 1px 5px;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            gap: 3px;
+        }
+
+        .card-video-badge svg {
+            width: 9px;
+            height: 9px;
         }
 
         /* 主体内容流 */
@@ -678,9 +719,21 @@
             </span>
             <span class="brand-title">PICVORA 隔空流转</span>
         </div>
-        <div class="status-capsule" id="status-capsule">
-            <span class="status-dot" id="status-dot"></span>
-            <span id="status-text">正在握手...</span>
+        <div style="display: flex; align-items: center; gap: 8px;">
+            <span class="wake-lock-badge" id="wake-lock-badge" style="display: none;" title="屏幕常亮保护已激活，防止传输中途黑屏休眠">
+                <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="8" cy="8" r="3" />
+                    <line x1="8" y1="1" x2="8" y2="3" />
+                    <line x1="8" y1="13" x2="8" y2="15" />
+                    <line x1="1" y1="8" x2="3" y2="8" />
+                    <line x1="13" y1="8" x2="15" y2="8" />
+                </svg>
+                <span>屏幕常亮</span>
+            </span>
+            <div class="status-capsule" id="status-capsule">
+                <span class="status-dot" id="status-dot"></span>
+                <span id="status-text">正在握手...</span>
+            </div>
         </div>
     </header>
 
@@ -695,7 +748,7 @@
                     </svg>
                     <span id="target-device-name">PC 工作台直连通道</span>
                 </span>
-                <span style="font-size: 11px; color: var(--text-muted);" id="channel-type-badge">WebRTC 局域网</span>
+                <span style="font-size: 11px; color: var(--text-muted);" id="channel-type-badge">跨端加密互传</span>
             </div>
             <div class="card-desc" id="status-detail-desc">正在尝试连接电脑端投送节点，请保持本页面在前台运行...</div>
 
@@ -771,6 +824,41 @@
             </div>
         </section>
 
+        <!-- 📋 跨端便签与双向剪贴板同步卡片 -->
+        <section class="info-card clipboard-sync-card" id="clipboard-sync-card" style="display: none;">
+            <div class="card-header-row">
+                <span class="card-title">
+                    <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="4" y="3" width="8" height="11" rx="1.5" />
+                        <path d="M6 3V2a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v1" />
+                    </svg>
+                    跨端双向便签与剪贴板
+                </span>
+                <span class="status-capsule" style="font-size: 10px; padding: 2px 8px; color: var(--primary);">双向互通</span>
+            </div>
+            <div class="card-desc">电脑推来的文字便签可一键存入手机剪贴板；亦可在下方输入便签秒传至电脑工作台。</div>
+            <div class="clipboard-input-box" style="margin-top: 6px;">
+                <textarea id="mobile-clipboard-input" rows="2" placeholder="在此输入文字/链接，点击下方按钮秒传至电脑剪贴板..." style="width: 100%; border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 8px 10px; background: var(--bg-card-subtle); color: var(--text-primary); font-size: 12px; resize: none; font-family: inherit; outline: none;"></textarea>
+                <div style="display: flex; gap: 8px; margin-top: 6px;">
+                    <button type="button" class="btn btn-primary btn-sm" id="btn-send-clipboard-to-pc" style="flex: 1; justify-content: center; gap: 4px;">
+                        <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                            <line x1="14" y1="2" x2="6" y2="10" />
+                            <polygon points="14 2 9.5 14 6 10 2 6.5 14 2" />
+                        </svg>
+                        <span id="btn-send-clipboard-text">发送便签至电脑</span>
+                    </button>
+                    <button type="button" class="btn btn-secondary btn-sm" id="btn-clear-clipboard-input" style="padding: 4px 10px;">清空</button>
+                </div>
+            </div>
+            <div id="mobile-received-note" style="display: none; margin-top: 10px; padding: 8px 10px; background: var(--primary-light); border: 1px solid rgba(59, 130, 246, 0.25); border-radius: var(--radius-md);">
+                <div style="font-size: 11px; font-weight: 600; color: var(--primary); margin-bottom: 4px; display: flex; align-items: center; justify-content: space-between;">
+                    <span>最新来自电脑的便签:</span>
+                    <button type="button" class="btn btn-secondary btn-sm" id="btn-copy-received-note" style="padding: 1px 6px; font-size: 10px; height: 20px;">复制到剪贴板</button>
+                </div>
+                <div id="mobile-received-note-text" style="font-size: 12px; color: var(--text-primary); word-break: break-all; white-space: pre-wrap; max-height: 80px; overflow-y: auto;"></div>
+            </div>
+        </section>
+
         <!-- 九宫格素材流 -->
         <section id="gallery-section" style="display: none;">
             <div class="gallery-header-row" style="display: flex; align-items: center; justify-content: space-between;">
@@ -786,7 +874,7 @@
             <div class="gallery-grid" id="gallery-grid"></div>
         </section>
 
-        <!-- 底部一键转存相册面板 -->
+        <!-- 底部一键转存相册与ZIP打包面板 -->
         <div class="bottom-action-panel" id="bottom-action-panel">
             <button type="button" class="btn btn-primary btn-full" id="btn-save-album">
                 <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
@@ -794,6 +882,16 @@
                     <rect x="2" y="11" width="12" height="3" rx="1" />
                 </svg>
                 一键转存系统相册
+            </button>
+            <button type="button" class="btn btn-secondary btn-full" id="btn-save-zip" style="margin-top: 8px; justify-content: center; gap: 6px; background: var(--bg-card); border-color: var(--primary); color: var(--primary); font-weight: 600;">
+                <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M2 12V3.5a1.5 1.5 0 0 1 1.5-1.5h9a1.5 1.5 0 0 1 1.5 1.5V12" />
+                    <path d="M6 14h4" />
+                    <path d="M8 10v4" />
+                    <circle cx="8" cy="5" r="1" />
+                    <circle cx="8" cy="8" r="1" />
+                </svg>
+                打包 ZIP 批量保存 (防浏览器拦截推荐)
             </button>
             <button type="button" class="btn btn-secondary btn-full" id="btn-reset-bottom" style="margin-top: 8px; justify-content: center; gap: 6px;">
                 <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
@@ -861,6 +959,8 @@
                     <img src="" alt="下一张" class="mobile-lightbox-img" id="mobile-lightbox-img-next">
                 </div>
             </div>
+            <!-- 短视频全屏播放器 (支持原生播放/全屏与控制条) -->
+            <video id="mobile-lightbox-video" class="mobile-lightbox-video" controls playsinline loop style="display: none; max-width: 100%; max-height: 75vh; border-radius: 8px; box-shadow: 0 12px 36px rgba(0, 0, 0, 0.6); outline: none; z-index: 5;"></video>
             <button type="button" class="mobile-lightbox-nav-btn next" id="btn-mobile-lightbox-next" title="下一张 (可向左滑)" aria-label="下一张" style="display: none;">
                 <svg viewBox="0 0 16 16" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <polyline points="6 3 11 8 6 13" />
@@ -874,7 +974,7 @@
                     <path d="M8 2v8.5M4.5 7.5L8 11l3.5-3.5" />
                     <rect x="2" y="11" width="12" height="3" rx="1" />
                 </svg>
-                保存此图
+                <span id="btn-lightbox-save-text">保存素材</span>
             </button>
         </div>
     </div>
@@ -895,6 +995,70 @@
                 }
             }
 
+            // CRC32 快速查表实现 (IEEE 802.3 标准多项式 0xEDB88320)
+            const CRC32_TABLE = new Uint32Array(256);
+            for (let i = 0; i < 256; i++) {
+                let c = i;
+                for (let k = 0; k < 8; k++) {
+                    c = ((c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1));
+                }
+                CRC32_TABLE[i] = c >>> 0;
+            }
+            function calculateCrc32(bytes) {
+                let crc = 0xFFFFFFFF;
+                for (let i = 0; i < bytes.length; i++) {
+                    crc = (crc >>> 8) ^ CRC32_TABLE[(crc ^ bytes[i]) & 0xFF];
+                }
+                return (crc ^ 0xFFFFFFFF) >>> 0;
+            }
+
+            // 屏幕常亮防锁屏控制器 (Screen Wake Lock API)
+            class WakeLockController {
+                constructor(badgeEl) {
+                    this.badgeEl = badgeEl;
+                    this.wakeLock = null;
+                    this.active = false;
+                    document.addEventListener('visibilitychange', async () => {
+                        if (document.visibilityState === 'visible' && this.active && !this.wakeLock) {
+                            await this.acquire();
+                        }
+                    });
+                }
+                async acquire() {
+                    this.active = true;
+                    if ('wakeLock' in navigator) {
+                        try {
+                            this.wakeLock = await navigator.wakeLock.request('screen');
+                            this.wakeLock.addEventListener('release', () => {
+                                this.wakeLock = null;
+                                if (!this.active && this.badgeEl) {
+                                    this.badgeEl.style.display = 'none';
+                                    this.badgeEl.classList.remove('active');
+                                }
+                            });
+                            if (this.badgeEl) {
+                                this.badgeEl.style.display = 'inline-flex';
+                                this.badgeEl.classList.add('active');
+                            }
+                            logDebug('已激活移动端屏幕常亮保护 (Screen Wake Lock)');
+                        } catch (err) {
+                            logDebug(`申请屏幕常亮未准许: ${err.message}`);
+                        }
+                    }
+                }
+                release() {
+                    this.active = false;
+                    if (this.wakeLock) {
+                        try { this.wakeLock.release(); } catch (_) {}
+                        this.wakeLock = null;
+                    }
+                    if (this.badgeEl) {
+                        this.badgeEl.style.display = 'none';
+                        this.badgeEl.classList.remove('active');
+                    }
+                }
+            }
+
             // 1. 微信环境检测与拦截引导
             const isWeChat = /MicroMessenger/i.test(navigator.userAgent);
             if (isWeChat) {
@@ -903,12 +1067,19 @@
                 logDebug('检测到处于微信内置环境，已激活全屏引导跳板');
             }
 
-            // 2. 解析 URL Hash 参数 (#host=pv-xxx&title=...&device=...)
+            // 2. 解析 URL Hash 参数 (#host=pv-xxx&title=...&device=...&sigHost=...)
             const hash = window.location.hash.substring(1);
             const params = new URLSearchParams(hash);
             const hostPeerId = params.get('host');
             const targetTitle = params.get('title') || 'Picvora 素材流转';
             const deviceName = params.get('device') || 'PC 工作台';
+
+            // 读取信令服务参数 (由 PC 端在直达链接 Hash 中透传，实现双端信令自动对齐)
+            const sigHost = params.get('sigHost') || '0.peerjs.com';
+            const sigPort = parseInt(params.get('sigPort') || '443', 10);
+            const sigPath = params.get('sigPath') || '/';
+            const sigSecure = params.get('sigSecure') === 'true' || (!params.has('sigSecure') && sigPort === 443);
+            const sigKey = params.get('sigKey') || 'peerjs';
 
             if (deviceName) {
                 document.getElementById('target-device-name').textContent = `${decodeURIComponent(deviceName)} 直连通道`;
@@ -922,6 +1093,9 @@
             }
 
             // 3. UI 元素引用
+            const wakeLockBadge = document.getElementById('wake-lock-badge');
+            const wakeLockCtrl = new WakeLockController(wakeLockBadge);
+
             const statusDot = document.getElementById('status-dot');
             const statusText = document.getElementById('status-text');
             const statusDesc = document.getElementById('status-detail-desc');
@@ -934,11 +1108,23 @@
             const contextTitle = document.getElementById('context-title');
             const contextText = document.getElementById('context-text');
             const tagList = document.getElementById('tag-list');
+
+            // 跨端便签 UI 引用
+            const clipboardSyncCard = document.getElementById('clipboard-sync-card');
+            const mobileClipboardInput = document.getElementById('mobile-clipboard-input');
+            const btnSendClipboardToPc = document.getElementById('btn-send-clipboard-to-pc');
+            const btnSendClipboardText = document.getElementById('btn-send-clipboard-text');
+            const btnClearClipboardInput = document.getElementById('btn-clear-clipboard-input');
+            const mobileReceivedNote = document.getElementById('mobile-received-note');
+            const mobileReceivedNoteText = document.getElementById('mobile-received-note-text');
+            const btnCopyReceivedNote = document.getElementById('btn-copy-received-note');
+
             const gallerySection = document.getElementById('gallery-section');
             const galleryGrid = document.getElementById('gallery-grid');
             const galleryCounter = document.getElementById('gallery-counter');
             const bottomAction = document.getElementById('bottom-action-panel');
             const btnSaveAlbum = document.getElementById('btn-save-album');
+            const btnSaveZip = document.getElementById('btn-save-zip');
             const btnCopyText = document.getElementById('btn-copy-text');
             const btnCopyTags = document.getElementById('btn-copy-tags');
             const btnReconnect = document.getElementById('btn-reconnect');
@@ -953,8 +1139,9 @@
             });
 
             // 接收状态存储
-            const receivedFiles = []; // [{ id, name, mimeType, blob, url, index }]
-            let currentReceivingFile = null; // { id, name, size, mimeType, totalChunks, chunks: [] }
+            const receivedFiles = []; // [{ id, name, mimeType, isVideo, blob, url, index }]
+            const receivedFingerprints = new Set(); // 记录已入库素材指纹 (name_size)，杜绝重复渲染
+            let currentReceivingFile = null; // { id, name, size, mimeType, isVideo, totalChunks, chunks: [] }
             let metaContext = null;
 
             // 国内外多源高可用 WebRTC STUN/TURN 穿透服务器池 (实测存活节点: 小米/B站/斗鱼/芒果TV + 全球免密 TCP 443 TURN 中继)
@@ -1000,18 +1187,19 @@
                     mobilePeer = null;
                 }
 
-                logDebug(`正在启动移动端 Peer 节点，准备呼叫 PC 主机: ${hostPeerId}`);
+                logDebug(`正在启动移动端 Peer 节点，使用信令 [${sigHost}:${sigPort}${sigPath}] 呼叫 PC 主机: ${hostPeerId}`);
                 statusText.textContent = '呼叫电脑端...';
                 statusDot.className = 'status-dot';
-                statusDesc.textContent = '正在连接公共信令服务，请保持本页面在前台运行...';
+                statusDesc.textContent = `正在连接信令服务器 (${sigHost})，请保持本页面在前台运行...`;
                 if (btnReconnect) btnReconnect.style.display = 'none';
 
                 try {
                     mobilePeer = new Peer({
-                        host: '0.peerjs.com',
-                        port: 443,
-                        path: '/',
-                        secure: true,
+                        host: sigHost,
+                        port: sigPort,
+                        path: sigPath,
+                        secure: sigSecure,
+                        key: sigKey,
                         debug: 1,
                         config: PEER_CONFIG
                     });
@@ -1242,26 +1430,33 @@
                         }
                         statusDot.className = 'status-dot connected';
                         statusText.textContent = '已直连 PC';
-                        statusDesc.textContent = '点对点直通管道已就绪，支持电脑推图与手机向电脑反向传图。';
+                        statusDesc.textContent = '点对点直通管道已就绪，支持电脑推图、短视频互传与双向剪贴板。';
                         progressWrap.style.display = 'block';
                         progressRow.style.display = 'flex';
                         if (btnReconnect) btnReconnect.style.display = 'none';
 
-                        // 📲 自动同步手机机型指纹给 PC 端连接池
+                        // 激活屏幕常亮防黑屏休眠保护
+                        wakeLockCtrl.acquire();
+
+                        // 📲 自动同步手机机型指纹与重连状态给 PC 端连接池
                         try {
                             const dev = detectMobileDeviceInfo();
+                            const isRecon = receivedFiles.length > 0;
                             conn.send(JSON.stringify({
                                 type: 'CLIENT_HELLO',
                                 deviceAlias: dev.deviceAlias,
                                 platform: dev.platform,
+                                receivedCount: receivedFiles.length,
+                                isReconnecting: isRecon,
                                 timestamp: Date.now()
                             }));
-                            logDebug(`已向电脑端同步本机指纹: ${dev.deviceAlias} (${dev.platform})`);
+                            logDebug(`已向电脑端同步本机指纹: ${dev.deviceAlias} (${dev.platform}) [重连状态: ${isRecon}, 已接收: ${receivedFiles.length} 张]`);
                         } catch (_) {}
 
-                        // 显示反向传图卡片
+                        // 显示反向传图卡片与跨端便签卡片
                         const revCard = document.getElementById('reverse-upload-card');
                         if (revCard) revCard.style.display = 'block';
+                        if (clipboardSyncCard) clipboardSyncCard.style.display = 'block';
                     });
 
                     conn.on('data', (data) => {
@@ -1271,14 +1466,16 @@
                     conn.on('close', () => {
                         logDebug('DataChannel 连接已断开');
                         isP2POpen = false;
+                        wakeLockCtrl.release();
                         const revCard = document.getElementById('reverse-upload-card');
                         if (revCard) revCard.style.display = 'none';
                         if (receivedFiles.length > 0) {
-                            statusText.textContent = '传输完毕 (连接已释放)';
-                            statusDesc.textContent = `已成功接收全部 ${receivedFiles.length} 张原图素材。`;
+                            statusText.textContent = '通道休眠 (素材已保全)';
+                            statusDesc.textContent = `已成功接收全部 ${receivedFiles.length} 张原图素材。切回前台将自动恢复直连通道，支持继续接收新图或从相册回传。`;
                         } else {
                             statusText.textContent = '连接已断开';
                             statusDesc.textContent = '与电脑端的通信管道已断开。';
+                            if (clipboardSyncCard) clipboardSyncCard.style.display = 'none';
                             if (btnReconnect) btnReconnect.style.display = 'flex';
                         }
                     });
@@ -1327,16 +1524,18 @@
                 }
             }
 
-            // 监听页面前后台唤醒（防止熄屏或微信跳出切回时断线）
+            // 监听页面前后台唤醒（防止熄屏或系统挂起切回时断线）
             document.addEventListener('visibilitychange', () => {
                 if (document.visibilityState === 'visible') {
-                    logDebug('页面重回前台，检查网络连接状态...');
+                    logDebug('页面重回前台，检查网络与直连通道状态...');
                     if (mobilePeer && mobilePeer.disconnected && !mobilePeer.destroyed) {
                         logDebug('检测到后台期间信令中断，立即执行自动恢复...');
                         try { mobilePeer.reconnect(); } catch (_) {}
                     }
-                    if (!isP2POpen && receivedFiles.length === 0) {
-                        logDebug('尚未建立数据通道，重新触发连接握手...');
+                    if (!isP2POpen) {
+                        logDebug('检测到直连数据通道已断开，自动自愈恢复通道...');
+                        statusText.textContent = receivedFiles.length > 0 ? '恢复直连中...' : '重新连接中...';
+                        statusDesc.textContent = '页面重回前台，正在自动重新协商直连数据管道...';
                         startConnecting();
                     }
                 }
@@ -1367,22 +1566,66 @@
                             renderContextPanel(msg);
                             gallerySection.style.display = 'block';
                         } else if (msg.type === 'FILE_START') {
-                            logDebug(`开始接收素材: ${msg.name} (大小 ${(msg.size / 1024).toFixed(1)} KB, 切分 ${msg.totalChunks} 片)`);
+                            const isVid = Boolean(msg.isVideo || (msg.mimeType && msg.mimeType.startsWith('video/')));
+                            logDebug(`开始接收${isVid ? '短视频' : '素材'}: ${msg.name} (大小 ${(msg.size / 1024).toFixed(1)} KB, 切分 ${msg.totalChunks} 片)`);
                             currentReceivingFile = {
                                 id: msg.fileId,
                                 name: msg.name,
                                 size: msg.size,
                                 mimeType: msg.mimeType,
+                                isVideo: isVid,
                                 totalChunks: msg.totalChunks,
-                                chunks: new Array(msg.totalChunks)
+                                chunks: new Array(msg.totalChunks),
+                                _nackTimer: null
                             };
                         } else if (msg.type === 'FILE_END') {
+                            // 极端弱网完整性校验：检查是否存在漏包或校验失败的坏包
+                            if (currentReceivingFile) {
+                                const missing = [];
+                                for (let i = 0; i < currentReceivingFile.totalChunks; i++) {
+                                    if (!currentReceivingFile.chunks[i]) {
+                                        missing.push(i);
+                                    }
+                                }
+                                if (missing.length > 0 && activeConn && activeConn.open) {
+                                    logDebug(`[差错控制] 素材 ${currentReceivingFile.name} 缺失 ${missing.length} 个分片，向 PC 请求精准补传: [${missing.slice(0, 8).join(',')}${missing.length > 8 ? '...' : ''}]`);
+                                    try {
+                                        activeConn.send(JSON.stringify({
+                                            type: 'FILE_NACK',
+                                            fileId: currentReceivingFile.id,
+                                            missingChunks: missing
+                                        }));
+                                    } catch (_) {}
+                                    if (currentReceivingFile._nackTimer) clearTimeout(currentReceivingFile._nackTimer);
+                                    currentReceivingFile._nackTimer = setTimeout(() => {
+                                        logDebug(`[补传超时] 等待补充分片超时，尝试组装已有有效分片`);
+                                        assembleCurrentFile();
+                                    }, 4000);
+                                    return;
+                                }
+                            }
                             assembleCurrentFile();
+                        } else if (msg.type === 'CLIPBOARD_SYNC' || msg.type === 'SYNC_CLIPBOARD') {
+                            // 收到来自电脑的跨端剪贴板便签
+                            const noteText = msg.text || '';
+                            logDebug(`[剪贴板同步] 收到来自电脑的便签: "${noteText.length > 30 ? noteText.slice(0, 30) + '...' : noteText}"`);
+                            if (clipboardSyncCard) clipboardSyncCard.style.display = 'block';
+                            if (mobileReceivedNote && mobileReceivedNoteText) {
+                                mobileReceivedNote.style.display = 'block';
+                                mobileReceivedNoteText.textContent = noteText;
+                            }
+                            if (navigator.clipboard && navigator.clipboard.writeText) {
+                                navigator.clipboard.writeText(noteText).then(() => {
+                                    logDebug('已成功自动复制电脑便签到手机系统剪贴板！');
+                                }).catch(() => {
+                                    logDebug('写入手机剪贴板权限受限，已在便签卡片中展示，可点击复制');
+                                });
+                            }
                         } else if (msg.type === 'SESSION_COMPLETE') {
                             logDebug(`全部素材已接收完毕！总计 ${receivedFiles.length} 个`);
                             statusDot.className = 'status-dot success';
                             statusText.textContent = '已全部接收';
-                            statusDesc.textContent = `成功从 PC 原图直传 ${receivedFiles.length} 张素材，零损耗秒级送达。`;
+                            statusDesc.textContent = `成功从 PC 原图直传 ${receivedFiles.length} 个素材，零损耗秒级送达。`;
                             progressFill.style.width = '100%';
                             progressPctText.textContent = '100%';
                             bottomAction.style.display = 'block';
@@ -1414,10 +1657,41 @@
                     const view = new DataView(rawBuffer);
                     const chunkIndex = view.getUint32(0, false);
                     const totalChunks = view.getUint32(4, false);
-                    const chunkPayload = rawBuffer.slice(8);
+
+                    let chunkPayload = null;
+                    // 升级支持 12 字节包头 (带 CRC32 校验) 与旧版 8 字节包头向后兼容
+                    if (rawBuffer.byteLength >= 12) {
+                        const packetCrc = view.getUint32(8, false);
+                        chunkPayload = rawBuffer.slice(12);
+                        const computedCrc = calculateCrc32(new Uint8Array(chunkPayload));
+                        if (computedCrc !== packetCrc) {
+                            logDebug(`[CRC坏包丢弃] 分片 ${chunkIndex + 1}/${totalChunks} CRC32 校验不匹配 (包头: ${packetCrc.toString(16)}, 计算: ${computedCrc.toString(16)})`);
+                            return; // 丢弃破损包，触发后续 FILE_NACK 补传
+                        }
+                    } else {
+                        chunkPayload = rawBuffer.slice(8);
+                    }
 
                     currentReceivingFile.chunks[chunkIndex] = chunkPayload;
                     currentReceivingFile.receivedChunksCount = (currentReceivingFile.receivedChunksCount || 0) + 1;
+
+                    // 若正在等待补发分片，检查是否全部缺包已经到齐
+                    if (currentReceivingFile._nackTimer) {
+                        let hasMissing = false;
+                        for (let i = 0; i < currentReceivingFile.totalChunks; i++) {
+                            if (!currentReceivingFile.chunks[i]) {
+                                hasMissing = true;
+                                break;
+                            }
+                        }
+                        if (!hasMissing) {
+                            clearTimeout(currentReceivingFile._nackTimer);
+                            currentReceivingFile._nackTimer = null;
+                            logDebug(`[补传完成] 缺失分片已全数补齐，立即组装 ${currentReceivingFile.name}`);
+                            assembleCurrentFile();
+                            return;
+                        }
+                    }
 
                     // 计算总体进度
                     const curCount = receivedFiles.length;
@@ -1429,12 +1703,17 @@
                 }
             }
 
-            // 组装当前单张图片 Blob 并渲染卡片
+            // 组装当前素材 Blob 并渲染卡片
             function assembleCurrentFile() {
                 if (!currentReceivingFile) return;
-                const { id, name, mimeType, chunks, size, totalChunks } = currentReceivingFile;
+                const { id, name, mimeType, chunks, size, totalChunks, isVideo } = currentReceivingFile;
 
-                // 严格校验分片有效性，杜绝 undefined 造成的 27 字节假文件
+                if (currentReceivingFile._nackTimer) {
+                    clearTimeout(currentReceivingFile._nackTimer);
+                    currentReceivingFile._nackTimer = null;
+                }
+
+                // 严格校验分片有效性，杜绝 undefined 造成的破损文件
                 const validParts = [];
                 let totalReceivedBytes = 0;
                 for (let i = 0; i < chunks.length; i++) {
@@ -1455,13 +1734,23 @@
                     logDebug(`[分片警告] 素材 ${name} 存在缺失分片 (${validParts.length}/${chunks.length})，已组装 ${totalReceivedBytes} 字节`);
                 }
 
-                const blob = new Blob(validParts, { type: mimeType || 'image/jpeg' });
+                const blob = new Blob(validParts, { type: mimeType || (isVideo ? 'video/mp4' : 'image/jpeg') });
                 const blobUrl = URL.createObjectURL(blob);
+
+                // 🎯 手机端第二道物理防重防线：避免同图/同视频重复注入画廊
+                const fileFingerprint = `${name}_${blob.size}`;
+                if (receivedFingerprints.has(fileFingerprint)) {
+                    logDebug(`[防重跳过] 素材 ${name} (${blob.size} 字节) 已经存在于画廊中，无需重复添加`);
+                    currentReceivingFile = null;
+                    return;
+                }
+                receivedFingerprints.add(fileFingerprint);
 
                 const item = {
                     id,
                     name,
                     mimeType,
+                    isVideo: Boolean(isVideo || (mimeType && mimeType.startsWith('video/'))),
                     blob,
                     url: blobUrl,
                     size: blob.size,
@@ -1469,10 +1758,10 @@
                 };
 
                 receivedFiles.push(item);
-                logDebug(`组装素材成功: ${name} (真实体积: ${(blob.size / 1024).toFixed(1)} KB, 包含 ${validParts.length} 个数据分片)`);
+                logDebug(`组装${item.isVideo ? '短视频' : '素材'}成功: ${name} (真实体积: ${(blob.size / 1024).toFixed(1)} KB, 包含 ${validParts.length} 个数据分片)`);
 
                 appendGalleryCard(item);
-                galleryCounter.textContent = `已接收素材 (${receivedFiles.length} 张)`;
+                galleryCounter.textContent = `已接收素材 (${receivedFiles.length} 个)`;
                 if (btnResetGallery) btnResetGallery.style.display = 'inline-flex';
 
                 currentReceivingFile = null;
@@ -1496,14 +1785,38 @@
                 }
             }
 
-            // 渲染单张九宫格卡片
+            // 渲染单张九宫格卡片 (图片/短视频)
             function appendGalleryCard(item) {
                 const card = document.createElement('div');
                 card.className = 'gallery-card';
 
-                const img = document.createElement('img');
-                img.src = item.url;
-                img.alt = item.name;
+                if (item.isVideo) {
+                    const videoThumb = document.createElement('video');
+                    videoThumb.src = item.url;
+                    videoThumb.muted = true;
+                    videoThumb.playsInline = true;
+                    videoThumb.preload = 'metadata';
+                    videoThumb.style.width = '100%';
+                    videoThumb.style.height = '100%';
+                    videoThumb.style.objectFit = 'cover';
+                    card.appendChild(videoThumb);
+
+                    // 视频专属角标
+                    const videoBadge = document.createElement('span');
+                    videoBadge.className = 'card-video-badge';
+                    videoBadge.innerHTML = `
+                        <svg viewBox="0 0 16 16" fill="currentColor">
+                            <polygon points="4,2 14,8 4,14" />
+                        </svg>
+                        <span>VIDEO</span>
+                    `;
+                    card.appendChild(videoBadge);
+                } else {
+                    const img = document.createElement('img');
+                    img.src = item.url;
+                    img.alt = item.name;
+                    card.appendChild(img);
+                }
 
                 const seq = document.createElement('span');
                 seq.className = 'card-seq-badge';
@@ -1513,11 +1826,10 @@
                 sizeBadge.className = 'card-size-badge';
                 sizeBadge.textContent = `${(item.size / 1024).toFixed(0)}K`;
 
-                card.appendChild(img);
                 card.appendChild(seq);
                 card.appendChild(sizeBadge);
 
-                // 点击卡片呼起沉浸式原生大图灯箱
+                // 点击卡片呼起沉浸式原生灯箱
                 card.addEventListener('click', () => {
                     openMobileLightbox(item);
                 });
@@ -1631,7 +1943,7 @@
                 }
             }
 
-            // 渲染三槽位滑块内容 (当前大图与前后预加载大图)
+            // 渲染三槽位滑块内容 (当前大图与前后预加载大图，或短视频原生播放器)
             function renderMobileLightboxSlides() {
                 if (!receivedFiles || receivedFiles.length === 0) return;
                 if (currentLightboxIndex < 0 || currentLightboxIndex >= receivedFiles.length) {
@@ -1642,14 +1954,35 @@
                 if (!curItem) return;
                 currentLightboxItem = curItem;
 
-                // 刷新主视口大图
-                if (mobileLightboxImg) {
-                    mobileLightboxImg.src = curItem.url;
+                const mobileLightboxVideo = document.getElementById('mobile-lightbox-video');
+                const btnLightboxSaveText = document.getElementById('btn-lightbox-save-text');
+
+                // 短视频与大图切换渲染
+                if (curItem.isVideo) {
+                    if (mobileLightboxStage) mobileLightboxStage.style.display = 'none';
+                    if (mobileLightboxVideo) {
+                        mobileLightboxVideo.style.display = 'block';
+                        mobileLightboxVideo.src = curItem.url;
+                        mobileLightboxVideo.play().catch(() => {});
+                    }
+                    if (btnLightboxSaveText) btnLightboxSaveText.textContent = '保存短视频';
+                } else {
+                    if (mobileLightboxVideo) {
+                        mobileLightboxVideo.pause();
+                        mobileLightboxVideo.style.display = 'none';
+                        mobileLightboxVideo.src = '';
+                    }
+                    if (mobileLightboxStage) mobileLightboxStage.style.display = 'flex';
+                    if (mobileLightboxImg) {
+                        mobileLightboxImg.src = curItem.url;
+                    }
+                    if (btnLightboxSaveText) btnLightboxSaveText.textContent = '保存原图';
                 }
+
                 resetZoom(false);
 
                 // 刷新相邻预加载槽位
-                if (total > 1) {
+                if (total > 1 && !curItem.isVideo) {
                     const prevIdx = (currentLightboxIndex - 1 + total) % total;
                     const nextIdx = (currentLightboxIndex + 1) % total;
                     if (mobileLightboxImgPrev) mobileLightboxImgPrev.src = receivedFiles[prevIdx].url;
@@ -1664,7 +1997,7 @@
                 }
 
                 // 顶部标题与计数胶囊
-                mobileLightboxTitle.textContent = curItem.name || '图片预览';
+                mobileLightboxTitle.textContent = curItem.name || (curItem.isVideo ? '短视频预览' : '图片预览');
                 const curPos = currentLightboxIndex + 1;
                 if (mobileLightboxCounter) {
                     mobileLightboxCounter.textContent = `${curPos}/${total}`;
@@ -1678,8 +2011,9 @@
                 }
 
                 const sizeText = curItem.size ? `${(curItem.size / 1024).toFixed(1)} KB` : '';
+                const typeText = curItem.isVideo ? 'MP4短视频' : (curItem.mimeType || 'JPEG');
                 if (mobileLightboxMeta) {
-                    mobileLightboxMeta.textContent = `[${curPos}/${total}] · ${curItem.mimeType || 'JPEG'} · ${sizeText}`;
+                    mobileLightboxMeta.textContent = `[${curPos}/${total}] · ${typeText} · ${sizeText}`;
                 }
             }
 
@@ -1741,9 +2075,18 @@
                 if (!mobileLightboxEl) return;
                 mobileLightboxEl.style.display = 'none';
                 resetZoom(false);
+
+                const mobileLightboxVideo = document.getElementById('mobile-lightbox-video');
+                if (mobileLightboxVideo) {
+                    mobileLightboxVideo.pause();
+                    mobileLightboxVideo.style.display = 'none';
+                    mobileLightboxVideo.src = '';
+                }
+
                 if (mobileLightboxStage) {
                     mobileLightboxStage.style.transition = 'none';
                     mobileLightboxStage.style.transform = 'translate3d(0, 0, 0)';
+                    mobileLightboxStage.style.display = 'flex';
                 }
                 if (mobileLightboxImg) mobileLightboxImg.src = '';
                 if (mobileLightboxImgPrev) mobileLightboxImgPrev.src = '';
@@ -1993,13 +2336,14 @@
                 });
             }
 
-            // 单图保存
+            // 单个素材保存 (图片或短视频)
             if (btnLightboxSaveSingle) {
                 btnLightboxSaveSingle.addEventListener('click', async (e) => {
                     e.stopPropagation();
                     if (!currentLightboxItem) return;
                     const item = currentLightboxItem;
-                    const fileToShare = new File([item.blob], item.name, { type: item.mimeType || 'image/jpeg' });
+                    const defaultMime = item.isVideo ? 'video/mp4' : (item.mimeType || 'image/jpeg');
+                    const fileToShare = new File([item.blob], item.name, { type: defaultMime });
                     if (navigator.canShare && navigator.canShare({ files: [fileToShare] })) {
                         try {
                             await navigator.share({
@@ -2034,13 +2378,154 @@
                 }
             });
 
-            // 6. 一键转存系统相册 (Web Share API)
+            // 6. 纯前端原生轻量 ZIP 打包生成器 (Store 模式，纯 TypedArray 组装，零外部依赖，100% 根除移动浏览器多文件弹窗拦截)
+            async function generateAndDownloadZip(files, zipFilename = 'picvora_materials.zip') {
+                if (!files || files.length === 0) {
+                    alert('当前没有可供打包保存的素材');
+                    return;
+                }
+
+                logDebug(`[ZIP生成器] 正在为 ${files.length} 个素材创建无损 ZIP 归档包 (Store模式)...`);
+                const statusTextBefore = statusText.textContent;
+                statusText.textContent = '正在打包 ZIP...';
+
+                try {
+                    const textEncoder = new TextEncoder();
+                    const fileEntries = [];
+
+                    // 1. 读取全部文件 Buffer 并计算 CRC32
+                    for (let i = 0; i < files.length; i++) {
+                        const f = files[i];
+                        const arrayBuf = await f.blob.arrayBuffer();
+                        const bytes = new Uint8Array(arrayBuf);
+                        const crc = calculateCrc32(bytes);
+                        const nameBytes = textEncoder.encode(f.name || `material_${i + 1}.jpg`);
+
+                        fileEntries.push({
+                            name: f.name || `material_${i + 1}.jpg`,
+                            nameBytes: nameBytes,
+                            bytes: bytes,
+                            crc: crc,
+                            size: bytes.length,
+                            offset: 0
+                        });
+                    }
+
+                    // 2. 计算总大小并分配单一连续 TypedArray
+                    let totalSize = 0;
+                    fileEntries.forEach(entry => {
+                        // Local Header (30 字节) + filename + data
+                        entry.offset = totalSize;
+                        totalSize += 30 + entry.nameBytes.length + entry.size;
+                    });
+
+                    const cdOffset = totalSize;
+                    let cdSize = 0;
+                    fileEntries.forEach(entry => {
+                        // Central Directory Header (46 字节) + filename
+                        cdSize += 46 + entry.nameBytes.length;
+                    });
+                    totalSize += cdSize + 22; // EOCD (22 字节)
+
+                    const zipBuffer = new Uint8Array(totalSize);
+                    const view = new DataView(zipBuffer.buffer);
+
+                    // 3. 写入 Local File Headers & File Data
+                    fileEntries.forEach(entry => {
+                        let p = entry.offset;
+                        // signature: 0x04034b50 (PK\x03\x04)
+                        view.setUint32(p, 0x04034b50, true); p += 4;
+                        view.setUint16(p, 20, true); p += 2; // version needed
+                        view.setUint16(p, 0x0800, true); p += 2; // flags (UTF-8)
+                        view.setUint16(p, 0, true); p += 2; // compression: store (0)
+                        view.setUint16(p, 0, true); p += 2; // mod time
+                        view.setUint16(p, 0, true); p += 2; // mod date
+                        view.setUint32(p, entry.crc, true); p += 4; // crc-32
+                        view.setUint32(p, entry.size, true); p += 4; // compressed size
+                        view.setUint32(p, entry.size, true); p += 4; // uncompressed size
+                        view.setUint16(p, entry.nameBytes.length, true); p += 2; // name length
+                        view.setUint16(p, 0, true); p += 2; // extra field length
+                        zipBuffer.set(entry.nameBytes, p); p += entry.nameBytes.length;
+                        zipBuffer.set(entry.bytes, p);
+                    });
+
+                    // 4. 写入 Central Directory Headers
+                    let cdPos = cdOffset;
+                    fileEntries.forEach(entry => {
+                        let p = cdPos;
+                        // signature: 0x02014b50 (PK\x01\x02)
+                        view.setUint32(p, 0x02014b50, true); p += 4;
+                        view.setUint16(p, 20, true); p += 2; // version made by
+                        view.setUint16(p, 20, true); p += 2; // version needed
+                        view.setUint16(p, 0x0800, true); p += 2; // flags (UTF-8)
+                        view.setUint16(p, 0, true); p += 2; // compression: store (0)
+                        view.setUint16(p, 0, true); p += 2; // mod time
+                        view.setUint16(p, 0, true); p += 2; // mod date
+                        view.setUint32(p, entry.crc, true); p += 4; // crc-32
+                        view.setUint32(p, entry.size, true); p += 4; // compressed size
+                        view.setUint32(p, entry.size, true); p += 4; // uncompressed size
+                        view.setUint16(p, entry.nameBytes.length, true); p += 2; // name length
+                        view.setUint16(p, 0, true); p += 2; // extra field length
+                        view.setUint16(p, 0, true); p += 2; // comment length
+                        view.setUint16(p, 0, true); p += 2; // disk start
+                        view.setUint16(p, 0, true); p += 2; // internal attrs
+                        view.setUint32(p, 0, true); p += 4; // external attrs
+                        view.setUint32(p, entry.offset, true); p += 4; // relative offset
+                        zipBuffer.set(entry.nameBytes, p);
+                        cdPos += 46 + entry.nameBytes.length;
+                    });
+
+                    // 5. 写入 End of Central Directory (EOCD)
+                    let eocdPos = cdPos;
+                    // signature: 0x06054b50 (PK\x05\x06)
+                    view.setUint32(eocdPos, 0x06054b50, true); eocdPos += 4;
+                    view.setUint16(eocdPos, 0, true); eocdPos += 2; // disk number
+                    view.setUint16(eocdPos, 0, true); eocdPos += 2; // disk with CD
+                    view.setUint16(eocdPos, fileEntries.length, true); eocdPos += 2; // total entries on disk
+                    view.setUint16(eocdPos, fileEntries.length, true); eocdPos += 2; // total entries
+                    view.setUint32(eocdPos, cdSize, true); eocdPos += 4; // size of CD
+                    view.setUint32(eocdPos, cdOffset, true); eocdPos += 4; // offset of CD
+                    view.setUint16(eocdPos, 0, true); // comment length
+
+                    // 6. 生成 ZIP Blob 并触发单次原生下载
+                    const zipBlob = new Blob([zipBuffer], { type: 'application/zip' });
+                    const zipUrl = URL.createObjectURL(zipBlob);
+                    const a = document.createElement('a');
+                    a.href = zipUrl;
+                    a.download = zipFilename;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    setTimeout(() => URL.revokeObjectURL(zipUrl), 10000);
+
+                    logDebug(`[ZIP生成器] 打包成功！ZIP 体积: ${(zipBlob.size / 1024 / 1024).toFixed(2)} MB`);
+                    statusText.textContent = 'ZIP 已保存';
+                    setTimeout(() => { statusText.textContent = statusTextBefore; }, 2000);
+                } catch (err) {
+                    logDebug(`[ZIP生成器异常] ${err.message}`);
+                    alert(`ZIP 打包失败: ${err.message}`);
+                    statusText.textContent = statusTextBefore;
+                }
+            }
+
+            // 绑定 ZIP 批量保存按钮
+            if (btnSaveZip) {
+                btnSaveZip.addEventListener('click', () => {
+                    if (receivedFiles.length === 0) return;
+                    const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+                    const zipName = `picvora_materials_${dateStr}.zip`;
+                    generateAndDownloadZip(receivedFiles, zipName);
+                });
+            }
+
+            // 7. 一键转存系统相册 (Web Share API)
             btnSaveAlbum.addEventListener('click', async () => {
                 if (receivedFiles.length === 0) return;
 
                 // 尝试构建 File 列表
                 const filesToShare = receivedFiles.map(rf => {
-                    return new File([rf.blob], rf.name, { type: rf.mimeType || 'image/jpeg' });
+                    const defaultMime = rf.isVideo ? 'video/mp4' : (rf.mimeType || 'image/jpeg');
+                    return new File([rf.blob], rf.name, { type: defaultMime });
                 });
 
                 // 检测是否支持 Web Share API Files 格式
@@ -2100,22 +2585,73 @@
                 });
             });
 
-            // 7. 一键清空恢复到默认状态 (以备再次接收，保持 P2P 直连)
+            // 8. 跨端双向便签与剪贴板交互
+            if (btnSendClipboardToPc && mobileClipboardInput) {
+                btnSendClipboardToPc.addEventListener('click', () => {
+                    const text = mobileClipboardInput.value.trim();
+                    if (!text) {
+                        alert('请输入需要发送给电脑的文字或便签');
+                        return;
+                    }
+                    if (!activeConn || !activeConn.open) {
+                        alert('当前未连接电脑端');
+                        return;
+                    }
+                    try {
+                        activeConn.send(JSON.stringify({
+                            type: 'REVERSE_CLIPBOARD_SYNC',
+                            text: text,
+                            timestamp: Date.now()
+                        }));
+                        logDebug(`已向电脑端发送便签: "${text}"`);
+                        if (btnSendClipboardText) btnSendClipboardText.textContent = '已发送！';
+                        setTimeout(() => {
+                            if (btnSendClipboardText) btnSendClipboardText.textContent = '发送便签至电脑';
+                        }, 1800);
+                    } catch (e) {
+                        logDebug(`发送便签异常: ${e.message}`);
+                    }
+                });
+            }
+
+            if (btnClearClipboardInput && mobileClipboardInput) {
+                btnClearClipboardInput.addEventListener('click', () => {
+                    mobileClipboardInput.value = '';
+                });
+            }
+
+            if (btnCopyReceivedNote && mobileReceivedNoteText) {
+                btnCopyReceivedNote.addEventListener('click', () => {
+                    const text = mobileReceivedNoteText.textContent || '';
+                    if (!text) return;
+                    navigator.clipboard.writeText(text).then(() => {
+                        btnCopyReceivedNote.textContent = '已复制！';
+                        setTimeout(() => { btnCopyReceivedNote.textContent = '复制到剪贴板'; }, 1500);
+                    }).catch(() => {
+                        alert('复制失败，请手动长按文字复制');
+                    });
+                });
+            }
+
+            // 9. 一键清空恢复到默认状态 (以备再次接收，保持 P2P 直连)
             function resetToDefaultState() {
                 logDebug('用户手动触发清空接收站，恢复初始就绪状态...');
                 closeMobileLightbox();
+                wakeLockCtrl.release();
+
                 // 释放已接收图片的 Blob URL 内存
                 receivedFiles.forEach(rf => {
                     try { URL.revokeObjectURL(rf.url); } catch (_) {}
                 });
                 receivedFiles.length = 0;
+                receivedFingerprints.clear();
                 currentReceivingFile = null;
                 metaContext = null;
 
                 // 清空画廊 DOM
                 galleryGrid.innerHTML = '';
                 gallerySection.style.display = 'none';
-                galleryCounter.textContent = '已接收素材 (0 张)';
+                galleryCounter.textContent = '已接收素材 (0 个)';
                 if (btnResetGallery) btnResetGallery.style.display = 'none';
                 bottomAction.style.display = 'none';
                 contextPanel.style.display = 'none';
@@ -2129,7 +2665,7 @@
                 if (isP2POpen) {
                     statusDot.className = 'status-dot connected';
                     statusText.textContent = '已直连 PC (待命)';
-                    statusDesc.textContent = '素材列表已清空，局域网管道保持通畅。请在电脑端继续选择新素材进行推送！';
+                    statusDesc.textContent = '素材列表已清空，跨端直连管道保持通畅。请在电脑端继续选择新素材进行推送！';
                 } else {
                     statusDot.className = 'status-dot';
                     statusText.textContent = '准备就绪';
@@ -2144,7 +2680,7 @@
                 btnResetBottom.addEventListener('click', resetToDefaultState);
             }
 
-            // 8. 手机机型指纹探测
+            // 10. 手机机型指纹探测
             function detectMobileDeviceInfo() {
                 const ua = navigator.userAgent || '';
                 let platform = 'Mobile';
@@ -2167,7 +2703,7 @@
                 return { platform, deviceAlias };
             }
 
-            // 9. 手机反向传图推流流水线 (向 PC 逆向推流 64KB 分片)
+            // 11. 手机反向传图推流流水线 (向 PC 逆向推流 64KB 分片，带 12 字节 CRC32 包头)
             const reverseUploadCard = document.getElementById('reverse-upload-card');
             const btnReverseSelect = document.getElementById('btn-reverse-select');
             const btnReverseText = document.getElementById('btn-reverse-text');
@@ -2236,20 +2772,22 @@
                             totalChunks: totalChunks
                         }));
 
-                        // 逐片推流并检查背压
+                        // 逐片推流并写入 12 字节 CRC32 包头
                         for (let cIdx = 0; cIdx < totalChunks; cIdx++) {
                             const start = cIdx * chunkSize;
                             const end = Math.min(buffer.byteLength, start + chunkSize);
                             const chunkData = buffer.slice(start, end);
+                            const chunkCrc = calculateCrc32(new Uint8Array(chunkData));
 
-                            const packetHeader = new Uint8Array(8);
+                            const packetHeader = new Uint8Array(12);
                             const view = new DataView(packetHeader.buffer);
                             view.setUint32(0, cIdx, false); // chunkIndex
                             view.setUint32(4, totalChunks, false); // totalChunks
+                            view.setUint32(8, chunkCrc, false); // crc32
 
-                            const combined = new Uint8Array(8 + chunkData.byteLength);
+                            const combined = new Uint8Array(12 + chunkData.byteLength);
                             combined.set(packetHeader, 0);
-                            combined.set(new Uint8Array(chunkData), 8);
+                            combined.set(new Uint8Array(chunkData), 12);
 
                             // 等待底层缓冲排水
                             const dc = activeConn.dataChannel;
