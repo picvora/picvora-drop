@@ -146,23 +146,73 @@
             50% { opacity: 0.5; transform: scale(1.2); }
         }
 
-        /* 屏幕常亮微光指示徽标 */
+        /* 屏幕常亮微光指示徽标 (支持点击开关与未就绪手动申请) */
         .wake-lock-badge {
             display: inline-flex;
             align-items: center;
             gap: 4px;
             padding: 3px 8px;
             border-radius: var(--radius-full);
-            background: var(--success-light);
-            border: 1px solid rgba(34, 197, 94, 0.3);
-            color: var(--success);
             font-size: 10px;
             font-weight: 600;
-            transition: all 0.2s ease;
+            cursor: pointer;
+            user-select: none;
+            transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+            -webkit-tap-highlight-color: transparent;
         }
 
+        .wake-lock-badge:active {
+            transform: scale(0.94);
+        }
+
+        /* 待激活/未开启状态 (默认显示，引导用户点击手动申请) */
+        .wake-lock-badge.inactive {
+            background: rgba(148, 163, 184, 0.12);
+            border: 1px solid rgba(148, 163, 184, 0.28);
+            color: #94a3b8;
+        }
+
+        .wake-lock-badge.inactive:hover {
+            background: rgba(148, 163, 184, 0.22);
+            color: #cbd5e1;
+        }
+
+        /* 已激活/常亮守护中状态 */
         .wake-lock-badge.active {
-            box-shadow: 0 0 8px rgba(34, 197, 94, 0.4);
+            background: var(--success-light);
+            border: 1px solid rgba(34, 197, 94, 0.35);
+            color: var(--success);
+            box-shadow: 0 0 8px rgba(34, 197, 94, 0.35);
+        }
+
+        /* 轻量移动端浮层 Toast */
+        .mobile-toast {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%) translateY(-20px);
+            background: rgba(15, 23, 42, 0.92);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            backdrop-filter: blur(12px);
+            color: #f8fafc;
+            padding: 7px 14px;
+            border-radius: var(--radius-full);
+            font-size: 11.5px;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            z-index: 99999;
+            box-shadow: 0 8px 24px -4px rgba(0, 0, 0, 0.5);
+            opacity: 0;
+            pointer-events: none;
+            transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .mobile-toast.show {
+            transform: translateX(-50%) translateY(0);
+            opacity: 1;
+            pointer-events: auto;
         }
 
         /* 视频素材角标 */
@@ -748,7 +798,7 @@
             <span class="brand-title">PICVORA 隔空流转</span>
         </div>
         <div style="display: flex; align-items: center; gap: 8px;">
-            <span class="wake-lock-badge" id="wake-lock-badge" style="display: none;" title="屏幕常亮保护已激活，防止传输中途黑屏休眠">
+            <span class="wake-lock-badge inactive" id="wake-lock-badge" title="点击开启屏幕常亮保护，防止休眠锁屏">
                 <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
                     <circle cx="8" cy="8" r="3" />
                     <line x1="8" y1="1" x2="8" y2="3" />
@@ -756,7 +806,7 @@
                     <line x1="1" y1="8" x2="3" y2="8" />
                     <line x1="13" y1="8" x2="15" y2="8" />
                 </svg>
-                <span>屏幕常亮</span>
+                <span id="wake-lock-text">点此常亮</span>
             </span>
             <div class="status-capsule" id="status-capsule">
                 <span class="status-dot" id="status-dot"></span>
@@ -877,10 +927,13 @@
                 <span class="gallery-counter" id="gallery-counter">已接收素材 (0 张)</span>
                 <button type="button" class="btn btn-secondary btn-sm" id="btn-reset-gallery" style="display: none; padding: 3px 8px; font-size: 11px; gap: 4px;">
                     <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M2.5 8a5.5 5.5 0 1 1 1.6 3.9L2 14" />
-                        <path d="M2 10v4h4" />
+                        <path d="M2.5 4.5h11" />
+                        <path d="M5.5 4.5v-1.5a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v1.5" />
+                        <path d="M3.5 4.5l.8 9.2a1.2 1.2 0 0 0 1.2 1.1h5a1.2 1.2 0 0 0 1.2-1.1l.8-9.2" />
+                        <line x1="6.5" y1="7.5" x2="6.5" y2="12" />
+                        <line x1="9.5" y1="7.5" x2="9.5" y2="12" />
                     </svg>
-                    恢复默认/就绪再传
+                    清空素材/就绪再传
                 </button>
             </div>
             <div class="gallery-grid" id="gallery-grid"></div>
@@ -907,8 +960,11 @@
             </button>
             <button type="button" class="btn btn-secondary btn-full" id="btn-reset-bottom" style="margin-top: 8px; justify-content: center; gap: 6px;">
                 <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M2.5 8a5.5 5.5 0 1 1 1.6 3.9L2 14" />
-                    <path d="M2 10v4h4" />
+                    <path d="M2.5 4.5h11" />
+                    <path d="M5.5 4.5v-1.5a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v1.5" />
+                    <path d="M3.5 4.5l.8 9.2a1.2 1.2 0 0 0 1.2 1.1h5a1.2 1.2 0 0 0 1.2-1.1l.8-9.2" />
+                    <line x1="6.5" y1="7.5" x2="6.5" y2="12" />
+                    <line x1="9.5" y1="7.5" x2="9.5" y2="12" />
                 </svg>
                 清空已收素材 (保持直连以备再传)
             </button>
@@ -1024,73 +1080,153 @@
                 return (crc ^ 0xFFFFFFFF) >>> 0;
             }
 
-            // 屏幕常亮防锁屏控制器 (Screen Wake Lock API，支持阶梯式自动申请与全时守护)
+            // 轻量移动端浮层 Toast (自动排队与淡入淡出)
+            let _toastTimer = null;
+            function showMobileToast(msg, type = 'info') {
+                let toastEl = document.getElementById('mobile-toast');
+                if (!toastEl) {
+                    toastEl = document.createElement('div');
+                    toastEl.id = 'mobile-toast';
+                    toastEl.className = 'mobile-toast';
+                    document.body.appendChild(toastEl);
+                }
+                toastEl.textContent = msg;
+                toastEl.classList.add('show');
+                if (_toastTimer) clearTimeout(_toastTimer);
+                _toastTimer = setTimeout(() => {
+                    toastEl.classList.remove('show');
+                }, 2200);
+            }
+
+            // 屏幕常亮防锁屏控制器 (Screen Wake Lock API，支持默认显示、手动切换开关与全时守护)
             class WakeLockController {
                 constructor(badgeEl) {
                     this.badgeEl = badgeEl;
+                    this.textEl = badgeEl ? (badgeEl.querySelector('#wake-lock-text') || badgeEl.querySelector('span')) : null;
                     this.wakeLock = null;
                     this.active = false;
+                    this.userDisabled = false; // 用户是否主动手动关闭
                     this._retryTimers = [];
 
-                    // 1. 窗口获得系统焦点时自动申请 (扫码打开或应用切入前台后通常在此刻取得权限)
+                    // 默认显示待激活状态
+                    this.updateUI('inactive');
+
+                    // 点击 badge 本身切换开启/关闭常亮
+                    if (this.badgeEl) {
+                        this.badgeEl.addEventListener('click', (e) => {
+                            e.stopPropagation();
+                            this.toggleUserMode();
+                        });
+                    }
+
+                    // 1. 窗口获得系统焦点时自动尝试申请
                     window.addEventListener('focus', () => {
-                        if (this.active && !this.wakeLock) {
-                            this.acquire();
+                        if (!this.userDisabled && !this.wakeLock) {
+                            this.acquire(false);
                         }
                     });
 
                     // 2. 页面可见性恢复时自动重新申请常亮锁
                     document.addEventListener('visibilitychange', () => {
-                        if (document.visibilityState === 'visible' && this.active && !this.wakeLock) {
-                            this.acquire();
+                        if (document.visibilityState === 'visible' && !this.userDisabled && !this.wakeLock) {
+                            this.acquire(false);
                         }
                     });
 
-                    // 3. 用户任意触碰或滚动页面时静默顺理成章激活常亮锁
-                    const silentTouchAcquire = () => {
-                        if (this.active && !this.wakeLock) {
-                            this.acquire();
+                    // 3. 用户触碰页面任意位置时静默尝试唤醒申请 (借助手势突破无权限限制)
+                    const onUserGestureAcquire = () => {
+                        if (!this.userDisabled && !this.wakeLock) {
+                            this.acquire(false);
                         }
                     };
-                    window.addEventListener('touchstart', silentTouchAcquire, { passive: true });
-                    window.addEventListener('pointerdown', silentTouchAcquire, { passive: true });
-                    window.addEventListener('scroll', silentTouchAcquire, { passive: true });
-                    window.addEventListener('click', silentTouchAcquire, { passive: true });
+                    window.addEventListener('touchstart', onUserGestureAcquire, { passive: true });
+                    window.addEventListener('pointerdown', onUserGestureAcquire, { passive: true });
+                    window.addEventListener('scroll', onUserGestureAcquire, { passive: true });
+                    window.addEventListener('click', onUserGestureAcquire, { passive: true });
                 }
 
-                async acquire() {
-                    this.active = true;
-                    if (!('wakeLock' in navigator)) return;
-                    if (this.wakeLock) return; // 已经持有锁，无需重复申请
+                updateUI(state) {
+                    if (!this.badgeEl) return;
+                    this.badgeEl.style.display = 'inline-flex';
+                    if (state === 'active') {
+                        this.badgeEl.className = 'wake-lock-badge active';
+                        if (this.textEl) this.textEl.textContent = '屏幕常亮';
+                        this.badgeEl.title = '屏幕常亮已开启 (点击可关闭)';
+                    } else if (state === 'unsupported') {
+                        this.badgeEl.className = 'wake-lock-badge inactive';
+                        if (this.textEl) this.textEl.textContent = '常亮不可用';
+                        this.badgeEl.title = '当前浏览器内核不支持屏幕常亮API';
+                    } else {
+                        // inactive 待开启
+                        this.badgeEl.className = 'wake-lock-badge inactive';
+                        if (this.textEl) this.textEl.textContent = '点此常亮';
+                        this.badgeEl.title = '点击开启屏幕常亮保护，防止休眠锁屏';
+                    }
+                }
+
+                async toggleUserMode() {
+                    if (!('wakeLock' in navigator)) {
+                        this.updateUI('unsupported');
+                        showMobileToast('当前浏览器不支持屏幕常亮特性，请在系统设置中延长熄屏时间', 'warn');
+                        return;
+                    }
+
+                    if (this.wakeLock) {
+                        // 当前已开启，用户点击则关闭
+                        this.userDisabled = true;
+                        this.release();
+                        showMobileToast('已关闭屏幕常亮保护', 'info');
+                    } else {
+                        // 当前未开启，用户手动点击开启
+                        this.userDisabled = false;
+                        const ok = await this.acquire(true);
+                        if (ok) {
+                            showMobileToast('已开启屏幕常亮保护，防止传输中途锁屏', 'success');
+                        } else {
+                            showMobileToast('申请屏幕常亮未获系统授权，请检查设备权限设置', 'warn');
+                        }
+                    }
+                }
+
+                async acquire(isManual = false) {
+                    if (this.userDisabled && !isManual) return false;
+                    if (!('wakeLock' in navigator)) {
+                        this.updateUI('unsupported');
+                        return false;
+                    }
+                    if (this.wakeLock) {
+                        this.updateUI('active');
+                        return true;
+                    }
 
                     try {
                         this.wakeLock = await navigator.wakeLock.request('screen');
+                        this.active = true;
                         this.wakeLock.addEventListener('release', () => {
                             this.wakeLock = null;
-                            if (!this.active && this.badgeEl) {
-                                this.badgeEl.style.display = 'none';
-                                this.badgeEl.classList.remove('active');
+                            if (this.userDisabled || document.visibilityState !== 'visible') {
+                                this.updateUI('inactive');
                             }
                         });
-                        if (this.badgeEl) {
-                            this.badgeEl.style.display = 'inline-flex';
-                            this.badgeEl.classList.add('active');
-                        }
+                        this.updateUI('active');
                         this._clearRetries();
                         logDebug('已成功激活移动端屏幕常亮保护 (Screen Wake Lock)');
+                        return true;
                     } catch (err) {
-                        // 首次进入页面时若因焦点尚未就绪被拒绝，启动 150ms / 500ms / 1200ms / 2500ms 阶梯自动重试
-                        if (this.active && !this.wakeLock && this._retryTimers.length === 0) {
-                            [150, 500, 1200, 2500].forEach(delay => {
+                        this.updateUI('inactive');
+                        // 首次进入页面时若因缺少用户激活被拒绝，安排阶梯自动重试
+                        if (!this.userDisabled && !this.wakeLock && this._retryTimers.length === 0 && !isManual) {
+                            [200, 800, 2000].forEach(delay => {
                                 const timer = setTimeout(() => {
-                                    if (this.active && !this.wakeLock) {
-                                        this.acquire();
+                                    if (!this.userDisabled && !this.wakeLock) {
+                                        this.acquire(false);
                                     }
                                 }, delay);
                                 this._retryTimers.push(timer);
                             });
                         }
                         logDebug(`申请屏幕常亮未就绪 (${err.name || 'NotAllowed'}): ${err.message}`);
+                        return false;
                     }
                 }
 
@@ -1100,16 +1236,13 @@
                 }
 
                 release() {
-                    this.active = false;
                     this._clearRetries();
                     if (this.wakeLock) {
                         try { this.wakeLock.release(); } catch (_) {}
                         this.wakeLock = null;
                     }
-                    if (this.badgeEl) {
-                        this.badgeEl.style.display = 'none';
-                        this.badgeEl.classList.remove('active');
-                    }
+                    this.active = false;
+                    this.updateUI('inactive');
                 }
             }
 
@@ -1194,6 +1327,22 @@
             const receivedFingerprints = new Set(); // 记录已入库素材指纹 (name_size)，杜绝重复渲染
             let currentReceivingFile = null; // { id, name, size, mimeType, isVideo, totalChunks, chunks: [] }
             let metaContext = null;
+
+            // 🎯 重置传输控制台与进度状态 (断开连接、手动重连或清空时统一调用)
+            function resetTransferConsole(keepVisible = false) {
+                currentReceivingFile = null;
+                metaContext = null;
+                if (progressFill) progressFill.style.width = '0%';
+                if (progressPctText) progressPctText.textContent = '0%';
+                if (progressCountText) progressCountText.textContent = '准备就绪，等待传输...';
+                if (!keepVisible) {
+                    if (progressWrap) progressWrap.style.display = 'none';
+                    if (progressRow) progressRow.style.display = 'none';
+                } else {
+                    if (progressWrap) progressWrap.style.display = 'block';
+                    if (progressRow) progressRow.style.display = 'flex';
+                }
+            }
 
             // 国内外多源高可用 WebRTC STUN/TURN 穿透服务器池 (实测存活节点: 小米/B站/斗鱼/芒果TV + 全球免密 TCP 443 TURN 中继)
             const PEER_CONFIG = {
@@ -1482,12 +1631,14 @@
                         statusDot.className = 'status-dot connected';
                         statusText.textContent = '已直连 PC';
                         statusDesc.textContent = '点对点直通管道已就绪，支持电脑推图、短视频互传与双向剪贴板。';
-                        progressWrap.style.display = 'block';
-                        progressRow.style.display = 'flex';
+                        
+                        // 🎯 重置传输进度条为 0% 并置为待命状态，隐藏重连按钮
+                        resetTransferConsole(true);
+                        if (progressCountText) progressCountText.textContent = '直连已就绪，等待电脑推流...';
                         if (btnReconnect) btnReconnect.style.display = 'none';
 
-                        // 激活屏幕常亮防黑屏休眠保护
-                        wakeLockCtrl.acquire();
+                        // 激活屏幕常亮防黑屏休眠保护 (尊重用户意愿)
+                        wakeLockCtrl.acquire(false);
 
                         // 📲 自动同步手机机型指纹与重连状态给 PC 端连接池
                         try {
@@ -1522,7 +1673,7 @@
                     conn.on('close', () => {
                         logDebug('DataChannel 连接已断开');
                         isP2POpen = false;
-                        // 💡 保持常亮防锁屏（用户仍在接收站检视素材，不提前熄屏）
+
                         const revCard = document.getElementById('reverse-upload-card');
                         if (revCard) revCard.style.display = 'none';
 
@@ -1531,14 +1682,22 @@
                         if (mobileReceivedNote) mobileReceivedNote.style.display = 'none';
                         if (mobileReceivedNoteText) mobileReceivedNoteText.textContent = '';
 
+                        // 🎯 重置传输控制台 (进度条归零/隐藏，清空接收任务)
+                        resetTransferConsole(false);
+
+                        // 🎯 始终显示重新连接按钮
+                        if (btnReconnect) btnReconnect.style.display = 'flex';
+
+                        statusDot.className = 'status-dot';
+
                         if (receivedFiles.length > 0) {
-                            statusText.textContent = '通道休眠 (素材已保全)';
-                            statusDesc.textContent = `已成功接收全部 ${receivedFiles.length} 张原图素材。切回前台将自动恢复直连通道，支持继续接收新图或从相册回传。`;
+                            // 🎯 顶部移除“素材已保存”/“(素材已保全)”，统一为“通道休眠”
+                            statusText.textContent = '通道休眠';
+                            statusDesc.textContent = `PC 端已断开本次连接，数据通道进入休眠。当前已接收 ${receivedFiles.length} 个素材，点击下方按钮可重新连接 PC 继续互传。`;
                         } else {
                             statusText.textContent = '连接已断开';
-                            statusDesc.textContent = '与电脑端的通信管道已断开。';
+                            statusDesc.textContent = '与电脑端的通信管道已断开。点击下方按钮可重新尝试连接。';
                             if (clipboardSyncCard) clipboardSyncCard.style.display = 'none';
-                            if (btnReconnect) btnReconnect.style.display = 'flex';
                         }
                     });
 
@@ -1598,6 +1757,7 @@
                         logDebug('检测到直连数据通道已断开，自动自愈恢复通道...');
                         statusText.textContent = receivedFiles.length > 0 ? '恢复直连中...' : '重新连接中...';
                         statusDesc.textContent = '页面重回前台，正在自动重新协商直连数据管道...';
+                        resetTransferConsole(false);
                         startConnecting();
                     }
                 }
@@ -1609,6 +1769,7 @@
                     logDebug('用户手动触发重新连接...');
                     retryCount = 0;
                     isP2POpen = false;
+                    resetTransferConsole(false);
                     initMobilePeer();
                 });
             }
@@ -2626,10 +2787,8 @@
                 if (btnResetGallery) btnResetGallery.style.display = 'none';
                 bottomAction.style.display = 'none';
 
-                // 重置进度条
-                progressFill.style.width = '0%';
-                progressPctText.textContent = '0%';
-                progressCountText.textContent = '等待电脑端推流...';
+                // 🎯 重置传输控制台与进度状态
+                resetTransferConsole(false);
 
                 // 保持已连通状态
                 if (isP2POpen) {
